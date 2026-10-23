@@ -1,13 +1,15 @@
-name: Generate Gradle Wrapper
+name: Build ColorPuzzle APK
 
 on:
+push:
+branches: [main]
 workflow_dispatch:
 
 permissions:
-contents: write
+contents: read
 
 jobs:
-generate:
+build:
 runs-on: ubuntu-latest
 
 steps:
@@ -25,13 +27,12 @@ steps:
     with:
       gradle-version: '8.2.1'
 
-  - name: Generate Wrapper files
-    run: gradle wrapper --gradle-version 8.2.1
+  - name: Build debug APK
+    run: gradle --no-daemon assembleDebug
 
-  - name: Save Wrapper files
-    run: |
-      git config user.name "github-actions[bot]"
-      git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      git add gradlew gradlew.bat gradle/wrapper/
-      git diff --cached --quiet || git commit -m "Generate Gradle Wrapper files"
-      git push
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: ColorPuzzle-debug
+      path: app/build/outputs/apk/debug/*.apk
+      if-no-files-found: error
