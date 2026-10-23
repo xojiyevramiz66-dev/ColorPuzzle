@@ -347,7 +347,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         val attempts = if (target >= 60) 180 else 260
 
         for (attempt in 0 until attempts) {
-            val candidate = createRandomBranchingAttempt(target)
+            val candidate = createRandomBranchingAttempt(target, level)
 
             if (candidate.size != target) continue
             if (!isSolvable(candidate)) continue
@@ -386,11 +386,12 @@ class ColorPuzzleView @JvmOverloads constructor(
             return selected
         }
 
-        return createGuaranteedFallback(target)
+        return createGuaranteedFallback(target, level)
     }
 
     private fun createRandomBranchingAttempt(
-        targetCount: Int
+        targetCount: Int,
+        level: Int
     ): MutableList<Cell> {
         val result = mutableListOf<Cell>()
 
@@ -405,7 +406,12 @@ class ColorPuzzleView @JvmOverloads constructor(
         for ((x, y) in positions) {
             if (result.size >= targetCount) break
 
-            val directions = Direction.values().toList().shuffled()
+            // Двунаправленные стрелки разрешены только с 10 уровня
+            val directions = if (level >= 10) {
+                Direction.values().toList().shuffled()
+            } else {
+                listOf(Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT).shuffled()
+            }
 
             for (direction in directions) {
                 val candidate = createCell(id, x, y, direction)
@@ -422,7 +428,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun createGuaranteedFallback(
-        targetCount: Int
+        targetCount: Int,
+        level: Int
     ): MutableList<Cell> {
         val result = mutableListOf<Cell>()
         val rowOrder = (0 until rows).shuffled()
@@ -438,10 +445,11 @@ class ColorPuzzleView @JvmOverloads constructor(
                 (cols - 1 downTo 0).toList()
             }
 
-            val direction = if (leftToRight) {
-                Direction.RIGHT
+            // С 10 уровня на запасном генераторе тоже могут изредка появляться двунаправленные блоки
+            val direction = if (level >= 10 && Random.nextInt(4) == 0) {
+                if (Random.nextBoolean()) Direction.VERTICAL else Direction.HORIZONTAL
             } else {
-                Direction.LEFT
+                if (leftToRight) Direction.RIGHT else Direction.LEFT
             }
 
             for (x in xOrder) {
@@ -768,7 +776,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         animatingBlockId = block.id
 
-        // Определяем фактическое направление движения (особенно для VERTICAL и HORIZONTAL)
         val others = blocks.filter { it.id != block.id }
         val actualDir = when (block.direction) {
             Direction.UP -> Direction.UP
