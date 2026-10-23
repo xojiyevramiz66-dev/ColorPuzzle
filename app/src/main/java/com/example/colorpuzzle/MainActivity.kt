@@ -6,47 +6,69 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
-class MainActivity : AppCompatActivity(), ColorPuzzleView.OnGameEventListener {
+class MainActivity :
+AppCompatActivity(),
+ColorPuzzleView.OnGameEventListener {
 
-    private var lives = 3
-    private lateinit var tvLives: TextView
-    private lateinit var puzzleView: ColorPuzzleView
+private var lives = 3
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+private lateinit var tvLives: TextView
+private lateinit var puzzleView: ColorPuzzleView
 
-        tvLives = findViewById(R.id.tvLives)
-        puzzleView = findViewById(R.id.puzzleView)
-        puzzleView.onGameEventListener = this
+override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    setContentView(R.layout.activity_main)
 
-        val btnRestart = findViewById<Button>(R.id.btnRestart)
-        btnRestart.setOnClickListener {
-            lives = 3
-            updateLivesUI()
-            puzzleView.loadLevel1()
-        }
+    tvLives = findViewById(R.id.tvLives)
+    puzzleView = findViewById(R.id.puzzleView)
+    puzzleView.onGameEventListener = this
+
+    findViewById<Button>(R.id.btnRestart).setOnClickListener {
+        restartGame()
     }
 
-    override fun onWrongMove() {
-        lives--
-        updateLivesUI()
-        Toast.makeText(this, "Блок уперся в препятствие!", Toast.LENGTH_SHORT).show()
-        if (lives <= 0) {
-            Toast.makeText(this, "Игра окончена!", Toast.LENGTH_LONG).show()
-            puzzleView.loadLevel1()
-            lives = 3
-            updateLivesUI()
-        }
-    }
+    updateLivesUI()
+}
 
-    override fun onLevelCompleted() {
-        Toast.makeText(this, "Уровень пройден! Выдающийся результат!", Toast.LENGTH_LONG).show()
-        puzzleView.loadLevel1()
-    }
+override fun onWrongMove() {
+    lives--
+    updateLivesUI()
 
-    private fun updateLivesUI() {
-        val hearts = "❤️".repeat(maxOf(0, lives))
-        tvLives.text = "Жизни: $hearts"
+    if (lives <= 0) {
+        Toast.makeText(
+            this,
+            "Игра окончена!",
+            Toast.LENGTH_LONG
+        ).show()
+
+        restartGame()
+    } else {
+        Toast.makeText(
+            this,
+            "Путь заблокирован! Осталось жизней: $lives",
+            Toast.LENGTH_SHORT
+        ).show()
     }
+}
+
+override fun onLevelCompleted() {
+    Toast.makeText(
+        this,
+        "Уровень пройден!",
+        Toast.LENGTH_LONG
+    ).show()
+
+    restartGame()
+}
+
+private fun restartGame() {
+    lives = 3
+    updateLivesUI()
+    puzzleView.loadLevel1()
+}
+
+private fun updateLivesUI() {
+    tvLives.text = "Жизни: " + "❤️".repeat(lives)
+}
+
 }
