@@ -40,7 +40,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     fun loadLevel(level: Int) {
         blocks.clear()
 
-        val count = minOf(12, 3 + (level - 1) / 2)
+        val safeLevel = level.coerceAtLeast(1)
+        val count = minOf(12, 3 + (safeLevel - 1) / 2)
+
         val colors = intArrayOf(
             Color.rgb(255, 82, 82),
             Color.rgb(68, 138, 255),
@@ -52,31 +54,76 @@ class ColorPuzzleView @JvmOverloads constructor(
             Color.rgb(92, 107, 192)
         )
 
-        // Гарантированная генерация без тупиков:
-        // Создаем список всех возможных ячеек
-        val availableCells = (0 until rows).flatMap { y -> (0 until cols).map { x -> x to y } }.toMutableList()
+        // Все доступные позиции на игровом поле.
+        val availableCells = (0 until rows)
+            .flatMap { y ->
+                (0 until cols).map { x -> x to y }
+            }
+            .toMutableList()
+
         availableCells.shuffle()
 
-        for (i in 0 until count) {
-            if (availableCells.isEmpty()) break
-            val (x, y) = availableCells.removeAt(0)
+        // Проверяем, свободен ли путь в выбранном направлении.
+        // Учитываются все блоки, которые уже добавлены на поле.
+        fun pathIsClear(
+            x: Int,
+            y: Int,
+            direction: Direction
+        ): Boolean {
+            return blocks.none { other ->
+                when (direction) {
+                    Direction.UP ->
+                        other.gridX == x &&
+                            other.gridY < y
 
-            // Подбираем направление наружу к краю, чтобы блок гарантированно мог улететь
-            val dir = when {
-                x == 0 -> Direction.LEFT
-                x == cols - 1 -> Direction.RIGHT
-                y == 0 -> Direction.UP
-                y == rows - 1 -> Direction.DOWN
-                else -> Direction.values().random()
+                    Direction.DOWN ->
+                        other.gridX == x &&
+                            other.gridY > y
+
+                    Direction.LEFT ->
+                        other.gridY == y &&
+                            other.gridX < x
+
+                    Direction.RIGHT ->
+                        other.gridY == y &&
+                            other.gridX > x
+                }
             }
+        }
+
+        // Создаём каждый следующий блок так, чтобы его путь
+        // был свободен от ранее созданных блоков.
+        for (i in 0 until count) {
+            val candidates = availableCells.flatMap { (x, y) ->
+                Direction.values()
+                    .filter { direction ->
+                        pathIsClear(x, y, direction)
+                    }
+                    .map { direction ->
+                        Triple(x, y, direction)
+                    }
+            }
+
+            // Для текущего поля 4x4 всегда можно найти
+            // свободную граничную позицию с выходом наружу.
+            if (candidates.isEmpty()) {
+                break
+            }
+
+            val (x, y, direction) =
+                candidates[Random.nextInt(candidates.size)]
+
+            availableCells.remove(x to y)
 
             blocks.add(
                 Cell(
                     id = i + 1,
                     gridX = x,
                     gridY = y,
-                    direction = dir,
-                    colorResId = colors[Random.nextInt(colors.size)]
+                    direction = direction,
+                    colorResId = colors[
+                        Random.nextInt(colors.size)
+                    ]
                 )
             )
         }
@@ -90,16 +137,22 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun positionBlocks() {
         if (cellSize <= 0f) return
 
-        blocks.forEach {
-            it.currentX = offsetX + it.gridX * cellSize
-            it.currentY = offsetY + it.gridY * cellSize
+        blocks.forEach { block ->
+            block.currentX = offsetX + block.gridX * cellSize
+            block.currentY = offsetY + block.gridY * cellSize
         }
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+    override fun onSizeChanged(
+        w: Int,
+        h: Int,
+        oldw: Int,
+        oldh: Int
+    ) {
         super.onSizeChanged(w, h, oldw, oldh)
 
         cellSize = min(w, h) * 0.8f / maxOf(cols, rows)
+
         offsetX = (w - cellSize * cols) / 2f
         offsetY = (h - cellSize * rows) / 2f
 
@@ -113,20 +166,36 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         canvas.drawColor(Color.rgb(245, 245, 245))
 
+        // Рисуем сетку игрового поля.
         paint.style = Paint.Style.STROKE
         paint.color = Color.LTGRAY
         paint.strokeWidth = 2f
 
         for (r in 0..rows) {
             val y = offsetY + r * cellSize
-            canvas.drawLine(offsetX, y, offsetX + cols * cellSize, y, paint)
+
+            canvas.drawLine(
+                offsetX,
+                y,
+                offsetX + cols * cellSize,
+                y,
+                paint
+            )
         }
 
         for (c in 0..cols) {
             val x = offsetX + c * cellSize
-            canvas.drawLine(x, offsetY, x, offsetY + rows * cellSize, paint)
+
+            canvas.drawLine(
+                x,
+                offsetY,
+                x,
+                offsetY + rows * cellSize,
+                paint
+            )
         }
 
+        // Рисуем цветные блоки.
         for (block in blocks) {
             paint.style = Paint.Style.FILL
             paint.color = block.colorResId
@@ -140,7 +209,12 @@ class ColorPuzzleView @JvmOverloads constructor(
                 block.currentY + cellSize - inset
             )
 
-            canvas.drawRoundRect(rect, cellSize * 0.16f, cellSize * 0.16f, paint)
+            canvas.drawRoundRect(
+                rect,
+                cellSize * 0.16f,
+                cellSize * 0.16f,
+                paint
+            )
 
             drawArrow(canvas, block)
         }
@@ -153,7 +227,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         paint.color = Color.WHITE
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = (cellSize * 0.055f).coerceAtLeast(3f)
+        paint.strokeWidth =
+            (cellSize * 0.055f).coerceAtLeast(3f)
         paint.strokeCap = Paint.Cap.ROUND
 
         val endX: Float
@@ -161,20 +236,43 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         when (block.direction) {
             Direction.UP -> {
-                endX = cx; endY = cy - len
-                canvas.drawLine(cx, cy + len, endX, endY, paint)
+                endX = cx
+                endY = cy - len
+                canvas.drawLine(
+                    cx, cy + len,
+                    endX, endY,
+                    paint
+                )
             }
+
             Direction.DOWN -> {
-                endX = cx; endY = cy + len
-                canvas.drawLine(cx, cy - len, endX, endY, paint)
+                endX = cx
+                endY = cy + len
+                canvas.drawLine(
+                    cx, cy - len,
+                    endX, endY,
+                    paint
+                )
             }
+
             Direction.LEFT -> {
-                endX = cx - len; endY = cy
-                canvas.drawLine(cx + len, cy, endX, endY, paint)
+                endX = cx - len
+                endY = cy
+                canvas.drawLine(
+                    cx + len, cy,
+                    endX, endY,
+                    paint
+                )
             }
+
             Direction.RIGHT -> {
-                endX = cx + len; endY = cy
-                canvas.drawLine(cx - len, cy, endX, endY, paint)
+                endX = cx + len
+                endY = cy
+                canvas.drawLine(
+                    cx - len, cy,
+                    endX, endY,
+                    paint
+                )
             }
         }
 
@@ -182,20 +280,55 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         when (block.direction) {
             Direction.UP -> {
-                canvas.drawLine(endX, endY, endX - head, endY + head, paint)
-                canvas.drawLine(endX, endY, endX + head, endY + head, paint)
+                canvas.drawLine(
+                    endX, endY,
+                    endX - head, endY + head,
+                    paint
+                )
+                canvas.drawLine(
+                    endX, endY,
+                    endX + head, endY + head,
+                    paint
+                )
             }
+
             Direction.DOWN -> {
-                canvas.drawLine(endX, endY, endX - head, endY - head, paint)
-                canvas.drawLine(endX, endY, endX + head, endY - head, paint)
+                canvas.drawLine(
+                    endX, endY,
+                    endX - head, endY - head,
+                    paint
+                )
+                canvas.drawLine(
+                    endX, endY,
+                    endX + head, endY - head,
+                    paint
+                )
             }
+
             Direction.LEFT -> {
-                canvas.drawLine(endX, endY, endX + head, endY - head, paint)
-                canvas.drawLine(endX, endY, endX + head, endY + head, paint)
+                canvas.drawLine(
+                    endX, endY,
+                    endX + head, endY - head,
+                    paint
+                )
+                canvas.drawLine(
+                    endX, endY,
+                    endX + head, endY + head,
+                    paint
+                )
             }
+
             Direction.RIGHT -> {
-                canvas.drawLine(endX, endY, endX - head, endY - head, paint)
-                canvas.drawLine(endX, endY, endX - head, endY + head, paint)
+                canvas.drawLine(
+                    endX, endY,
+                    endX - head, endY - head,
+                    paint
+                )
+                canvas.drawLine(
+                    endX, endY,
+                    endX - head, endY + head,
+                    paint
+                )
             }
         }
 
@@ -209,8 +342,10 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             MotionEvent.ACTION_UP -> {
                 val block = blocks.find {
-                    event.x >= it.currentX && event.x <= it.currentX + cellSize &&
-                    event.y >= it.currentY && event.y <= it.currentY + cellSize
+                    event.x >= it.currentX &&
+                        event.x <= it.currentX + cellSize &&
+                        event.y >= it.currentY &&
+                        event.y <= it.currentY + cellSize
                 }
 
                 if (block != null) {
@@ -221,6 +356,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                 return true
             }
         }
+
         return true
     }
 
@@ -230,18 +366,28 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun evaluateMove(block: Cell) {
+        // Проверяем, не мешает ли другой блок движению.
         val isBlocked = blocks.any { other ->
-            if (other.id == block.id) return@any false
+            if (other.id == block.id) {
+                return@any false
+            }
 
             when (block.direction) {
-                Direction.UP -> 
-                    other.gridX == block.gridX && other.gridY < block.gridY
-                Direction.DOWN -> 
-                    other.gridX == block.gridX && other.gridY > block.gridY
-                Direction.LEFT -> 
-                    other.gridY == block.gridY && other.gridX < block.gridX
-                Direction.RIGHT -> 
-                    other.gridY == block.gridY && other.gridX > block.gridX
+                Direction.UP ->
+                    other.gridX == block.gridX &&
+                        other.gridY < block.gridY
+
+                Direction.DOWN ->
+                    other.gridX == block.gridX &&
+                        other.gridY > block.gridY
+
+                Direction.LEFT ->
+                    other.gridY == block.gridY &&
+                        other.gridX < block.gridX
+
+                Direction.RIGHT ->
+                    other.gridY == block.gridY &&
+                        other.gridX > block.gridX
             }
         }
 
@@ -250,9 +396,11 @@ class ColorPuzzleView @JvmOverloads constructor(
             return
         }
 
+        // Удаляем блок, если его путь свободен.
         blocks.remove(block)
         invalidate()
 
+        // Сообщаем о завершении уровня.
         if (blocks.isEmpty()) {
             onGameEventListener?.onLevelCompleted()
         }
