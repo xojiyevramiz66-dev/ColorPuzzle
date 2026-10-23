@@ -39,7 +39,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         var currentX: Float = 0f,
         var currentY: Float = 0f,
         var scale: Float = 1f,
-        var alpha: Int = 255 // Добавлено для плавного кинематографичного Fade Out при вылете
+        var alpha: Int = 255
     )
 
     private data class DifficultyMetrics(
@@ -56,13 +56,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     private var currentLevel = 1
     private var animatingBlockId: Int? = null
 
-    // Стек для реализации отмены хода (Undo) на базе JSON-экспорта
     private val historyStack = Stack<String>()
+    private var lastDifficultyMetrics = DifficultyMetrics(0, 0, 0)
 
-    private var lastDifficultyMetrics =
-        DifficultyMetrics(0, 0, 0)
-
-    // Включаем ANTI_ALIAS_FLAG и FILTER_BITMAP_FLAG для идеального Full HD сглаживания без пикселей
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val blocks = mutableListOf<Cell>()
 
@@ -150,7 +146,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    // Сохранение состояния для Undo и сохранения
     fun exportState(): String {
         val root = JSONObject()
 
@@ -250,7 +245,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    // Метод отмены хода (Undo)
     fun undoMove(): Boolean {
         if (historyStack.isEmpty() || animatingBlockId != null) return false
         val previousState = historyStack.pop()
@@ -563,9 +557,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        // Элегантный трендовый фоновый цвет
-        canvas.drawColor(Color.rgb(242, 246, 250))
-
+        // НЕ закрашиваем canvas белым цветом (прозрачный задний фон!)
         if (cellSize <= 0f) return
 
         val board = RectF(
@@ -575,18 +567,19 @@ class ColorPuzzleView @JvmOverloads constructor(
             offsetY + rows * cellSize
         )
 
+        // 1. Рисуем глубинную мягкую тень под всей доской
         paint.shader = null
-        paint.clearShadowLayer()
+        paint.setShadowLayer(cellSize * 0.20f, 0f, cellSize * 0.10f, Color.argb(100, 0, 0, 0))
         paint.style = Paint.Style.FILL
-        paint.color = Color.rgb(224, 231, 240)
+        paint.color = Color.rgb(22, 30, 46) // Тёмный стильный тон подложки
 
-        // Скругленная подложка доски Full HD качества
         canvas.drawRoundRect(board, cellSize * 0.16f, cellSize * 0.16f, paint)
+        paint.clearShadowLayer()
 
-        // Тонкая высококачественная сетка поля
+        // 2. Аккуратная и стильная сетка для тёмного фона
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1.2f
-        paint.color = Color.rgb(203, 213, 225)
+        paint.color = Color.rgb(38, 50, 72)
 
         for (col in 0..cols) {
             val x = offsetX + col * cellSize
@@ -598,7 +591,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             canvas.drawLine(offsetX, y, offsetX + cols * cellSize, y, paint)
         }
 
-        // Рендеринг блоков с динамическими мягкими тенями, масштабом и прозрачностью
+        // 3. Яркие, контрастные блоки над тёмным фоном
         for (block in blocks) {
             val inset = cellSize * 0.08f
             val baseLeft = block.currentX + inset
@@ -618,13 +611,13 @@ class ColorPuzzleView @JvmOverloads constructor(
                 centerY + currentHeight / 2f
             )
 
-            // Просчет тени с учетом текущей прозрачности блока для кинематографичности
-            val shadowAlpha = (45 * (block.alpha / 255f)).toInt()
+            // Контрастная тень для каждого блока
+            val shadowAlpha = (60 * (block.alpha / 255f)).toInt()
             paint.setShadowLayer(
-                cellSize * 0.12f * block.scale,
+                cellSize * 0.14f * block.scale,
                 0f,
-                cellSize * 0.06f * block.scale,
-                Color.argb(shadowAlpha, 15, 23, 42)
+                cellSize * 0.07f * block.scale,
+                Color.argb(shadowAlpha, 0, 0, 0)
             )
             
             paint.style = Paint.Style.FILL
@@ -639,7 +632,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             paint.clearShadowLayer()
 
-            // Рисуем стрелку с учетом альфа-канала
             if (block.alpha > 30) {
                 drawFlatArrow(
                     canvas,
@@ -657,7 +649,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
     }
 
-    // Вспомогательный метод для динамической прозрачности без потери цвета
     private fun applyAlpha(color: Int, alpha: Int): Int {
         return Color.argb(
             alpha,
@@ -758,7 +749,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 blocks.filter { it.id != block.id }
             )
         ) {
-            // Вибрация ошибки
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 performHapticFeedback(HapticFeedbackConstants.REJECT)
             }
@@ -766,10 +756,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             return
         }
 
-        // Сохранение для Undo
         historyStack.push(exportState())
 
-        // Тактильный подтверждающий отклик
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             performHapticFeedback(HapticFeedbackConstants.CONFIRM)
         }
@@ -790,7 +778,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         val startX = block.currentX
         val startY = block.currentY
 
-        // Плавная пружинистая анимация вылета с динамическим растворением (Fade Out)
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 240
             interpolator = AccelerateInterpolator()
