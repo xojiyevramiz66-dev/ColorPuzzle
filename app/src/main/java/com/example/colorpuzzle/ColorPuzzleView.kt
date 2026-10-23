@@ -483,47 +483,57 @@ class ColorPuzzleView @JvmOverloads constructor(
         return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
     }
 
-    // Усовершенствованный изящный наконечник стрелки с более острыми и аккуратными пропорциями
-    private fun drawArrowHead(canvas: Canvas, tipX: Float, tipY: Float, dirX: Float, dirY: Float, headSize: Float) {
-        val perpX = -dirY
-        val perpY = dirX
-        val baseX = tipX - dirX * headSize * 0.9f
-        val baseY = tipY - dirY * headSize * 0.9f
-        val wing = headSize * 0.45f // Более узкие, элегантные крылья стрелки
+    // Чистый, классический и монолитный метод отрисовки стрелок без разрыва контуров
+    private fun drawSingleDirectionalArrow(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        length: Float,
+        dx: Float,
+        dy: Float,
+        alpha: Int
+    ) {
+        val arrowLen = length * 0.85f
+        val startX = cx - dx * arrowLen
+        val startY = cy - dy * arrowLen
+        val endX = cx + dx * arrowLen
+        val endY = cy + dy * arrowLen
+        
+        val wingSize = arrowLen * 0.45f
 
-        arrowPath.reset()
-        arrowPath.moveTo(tipX, tipY)
-        arrowPath.lineTo(baseX + perpX * wing, baseY + perpY * wing)
-        arrowPath.lineTo(baseX - perpX * wing, baseY - perpY * wing)
-        arrowPath.close()
-
-        arrowPaint.style = Paint.Style.FILL
-        canvas.drawPath(arrowPath, arrowPaint)
-    }
-
-    private fun drawArrow(canvas: Canvas, cx: Float, cy: Float, length: Float, directions: List<Direction>, alpha: Int) {
-        // Добавляем красивое легкое неоновое свечение вокруг стрелки для премиального вида
-        arrowPaint.setShadowLayer(length * 0.2f, 0f, 0f, Color.argb(100, 255, 255, 255))
-        arrowPaint.strokeWidth = (length * 0.22f).coerceAtLeast(2.0f) // Сделали линии чуть изящнее
+        arrowPaint.style = Paint.Style.STROKE
+        arrowPaint.strokeWidth = (length * 0.26f).coerceAtLeast(3.0f)
         arrowPaint.strokeCap = Paint.Cap.ROUND
         arrowPaint.strokeJoin = Paint.Join.ROUND
         arrowPaint.color = applyAlpha(arrowColor, alpha)
 
-        val headSize = length * 0.55f
+        // 1. Основной стержень стрелки
+        canvas.drawLine(startX, startY, endX, endY, arrowPaint)
+
+        // 2. Ушки наконечника (соединены со стержнем без разрывов)
+        canvas.drawLine(
+            endX, endY,
+            endX - dx * wingSize - dy * wingSize,
+            endY - dy * wingSize + dx * wingSize,
+            arrowPaint
+        )
+        canvas.drawLine(
+            endX, endY,
+            endX - dx * wingSize + dy * wingSize,
+            endY - dy * wingSize - dx * wingSize,
+            arrowPaint
+        )
+    }
+
+    private fun drawArrow(canvas: Canvas, cx: Float, cy: Float, length: Float, directions: List<Direction>, alpha: Int) {
+        arrowPaint.clearShadowLayer()
 
         if (directions.size == 2) {
+            // Двунаправленная стрелка (↕ или ↔)
             val dir1 = directions[0]
             val dir2 = directions[1]
-            
-            arrowPaint.style = Paint.Style.STROKE
-            val startX = cx + dir1.dx * (length - headSize * 0.3f)
-            val startY = cy + dir1.dy * (length - headSize * 0.3f)
-            val endX = cx + dir2.dx * (length - headSize * 0.3f)
-            val endY = cy + dir2.dy * (length - headSize * 0.3f)
-            canvas.drawLine(startX, startY, endX, endY, arrowPaint)
-            
-            drawArrowHead(canvas, cx + dir1.dx * length, cy + dir1.dy * length, dir1.dx.toFloat(), dir1.dy.toFloat(), headSize)
-            drawArrowHead(canvas, cx + dir2.dx * length, cy + dir2.dy * length, dir2.dx.toFloat(), dir2.dy.toFloat(), headSize)
+            drawSingleDirectionalArrow(canvas, cx, cy, length * 0.8f, dir1.dx.toFloat(), dir1.dy.toFloat(), alpha)
+            drawSingleDirectionalArrow(canvas, cx, cy, length * 0.8f, dir2.dx.toFloat(), dir2.dy.toFloat(), alpha)
             
         } else if (directions.size == 1) {
             val dir = directions.first()
@@ -538,35 +548,31 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val endX = if (isRight) cx + offset else cx - offset
                 val endY = if (isBottom) cy + offset else cy - offset
 
-                // Элегантная плавная дуга
                 arrowPath.reset()
                 arrowPath.moveTo(startX, startY)
                 arrowPath.quadTo(cx, cy, endX, endY)
 
                 arrowPaint.style = Paint.Style.STROKE
+                arrowPaint.strokeWidth = (length * 0.26f).coerceAtLeast(3.0f)
+                arrowPaint.strokeCap = Paint.Cap.ROUND
+                arrowPaint.strokeJoin = Paint.Join.ROUND
+                arrowPaint.color = applyAlpha(arrowColor, alpha)
+
                 canvas.drawPath(arrowPath, arrowPaint)
 
-                // Точное направление наконечника по касательной дуги
-                val tipDirX = if (isRight) 0.7f else -0.7f
-                val tipDirY = if (isBottom) 0.7f else -0.7f
-                drawArrowHead(canvas, endX, endY, tipDirX, tipDirY, headSize)
+                // Наконечник изогнутой стрелки
+                val headX = if (isRight) 1f else -1f
+                val headY = if (isBottom) 1f else -1f
+                val wing = length * 0.35f
+                
+                canvas.drawLine(endX, endY, endX - headX * wing, endY, arrowPaint)
+                canvas.drawLine(endX, endY, endX, endY - headY * wing, arrowPaint)
 
             } else {
-                arrowPaint.style = Paint.Style.STROKE
-                val startX = cx - dir.dx * (length - headSize * 0.3f)
-                val startY = cy - dir.dy * (length - headSize * 0.3f)
-                val endX = cx + dir.dx * (length - headSize * 0.3f)
-                val endY = cy + dir.dy * (length - headSize * 0.3f)
-
-                canvas.drawLine(startX, startY, endX, endY, arrowPaint)
-                drawArrowHead(canvas, cx + dir.dx * length, cy + dir.dy * length, dir.dx.toFloat(), dir.dy.toFloat(), headSize)
+                // Обычная прямая стрелка (⬆, ⬇, ⬅, ➡)
+                drawSingleDirectionalArrow(canvas, cx, cy, length, dir.dx.toFloat(), dir.dy.toFloat(), alpha)
             }
         }
-
-        arrowPaint.clearShadowLayer()
-        arrowPaint.style = Paint.Style.FILL
-        arrowPaint.strokeCap = Paint.Cap.BUTT
-        arrowPaint.strokeJoin = Paint.Join.MITER
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
