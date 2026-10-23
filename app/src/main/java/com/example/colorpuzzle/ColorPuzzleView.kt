@@ -483,12 +483,13 @@ class ColorPuzzleView @JvmOverloads constructor(
         return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
     }
 
+    // Усовершенствованный изящный наконечник стрелки с более острыми и аккуратными пропорциями
     private fun drawArrowHead(canvas: Canvas, tipX: Float, tipY: Float, dirX: Float, dirY: Float, headSize: Float) {
         val perpX = -dirY
         val perpY = dirX
-        val baseX = tipX - dirX * headSize
-        val baseY = tipY - dirY * headSize
-        val wing = headSize * 0.55f
+        val baseX = tipX - dirX * headSize * 0.9f
+        val baseY = tipY - dirY * headSize * 0.9f
+        val wing = headSize * 0.45f // Более узкие, элегантные крылья стрелки
 
         arrowPath.reset()
         arrowPath.moveTo(tipX, tipY)
@@ -501,24 +502,24 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun drawArrow(canvas: Canvas, cx: Float, cy: Float, length: Float, directions: List<Direction>, alpha: Int) {
-        // Добавляем премиальное мягкое свечение стрелкам
-        arrowPaint.setShadowLayer(length * 0.15f, 0f, 0f, Color.argb(80, 255, 255, 255))
-        arrowPaint.strokeWidth = (length * 0.26f).coerceAtLeast(2.5f)
+        // Добавляем красивое легкое неоновое свечение вокруг стрелки для премиального вида
+        arrowPaint.setShadowLayer(length * 0.2f, 0f, 0f, Color.argb(100, 255, 255, 255))
+        arrowPaint.strokeWidth = (length * 0.22f).coerceAtLeast(2.0f) // Сделали линии чуть изящнее
         arrowPaint.strokeCap = Paint.Cap.ROUND
         arrowPaint.strokeJoin = Paint.Join.ROUND
         arrowPaint.color = applyAlpha(arrowColor, alpha)
 
-        val headSize = length * 0.60f
+        val headSize = length * 0.55f
 
         if (directions.size == 2) {
             val dir1 = directions[0]
             val dir2 = directions[1]
             
             arrowPaint.style = Paint.Style.STROKE
-            val startX = cx + dir1.dx * (length - headSize * 0.4f)
-            val startY = cy + dir1.dy * (length - headSize * 0.4f)
-            val endX = cx + dir2.dx * (length - headSize * 0.4f)
-            val endY = cy + dir2.dy * (length - headSize * 0.4f)
+            val startX = cx + dir1.dx * (length - headSize * 0.3f)
+            val startY = cy + dir1.dy * (length - headSize * 0.3f)
+            val endX = cx + dir2.dx * (length - headSize * 0.3f)
+            val endY = cy + dir2.dy * (length - headSize * 0.3f)
             canvas.drawLine(startX, startY, endX, endY, arrowPaint)
             
             drawArrowHead(canvas, cx + dir1.dx * length, cy + dir1.dy * length, dir1.dx.toFloat(), dir1.dy.toFloat(), headSize)
@@ -531,13 +532,13 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val isRight = dir == Direction.CORNER_TOP_RIGHT || dir == Direction.CORNER_BOTTOM_RIGHT
                 val isBottom = dir == Direction.CORNER_BOTTOM_LEFT || dir == Direction.CORNER_BOTTOM_RIGHT
 
-                val offset = length * 0.5f
+                val offset = length * 0.55f
                 val startX = if (isRight) cx - offset else cx + offset
                 val startY = if (isBottom) cy - offset else cy + offset
                 val endX = if (isRight) cx + offset else cx - offset
                 val endY = if (isBottom) cy + offset else cy - offset
 
-                // Рисуем плавную скругленную дугу с помощью квадратичной кривой Безье
+                // Элегантная плавная дуга
                 arrowPath.reset()
                 arrowPath.moveTo(startX, startY)
                 arrowPath.quadTo(cx, cy, endX, endY)
@@ -545,18 +546,17 @@ class ColorPuzzleView @JvmOverloads constructor(
                 arrowPaint.style = Paint.Style.STROKE
                 canvas.drawPath(arrowPath, arrowPaint)
 
-                // Наконечник в конце дуги
-                val tipDirX = if (isRight) 1f else -1f
-                val tipDirY = if (isBottom) 0f else 0f 
-                // Корректируем направление наконечника плавно по касательной
-                drawArrowHead(canvas, endX, endY, if(isRight) 1f else -1f, if(isBottom) 1f else -1f, headSize)
+                // Точное направление наконечника по касательной дуги
+                val tipDirX = if (isRight) 0.7f else -0.7f
+                val tipDirY = if (isBottom) 0.7f else -0.7f
+                drawArrowHead(canvas, endX, endY, tipDirX, tipDirY, headSize)
 
             } else {
                 arrowPaint.style = Paint.Style.STROKE
-                val startX = cx - dir.dx * (length - headSize * 0.4f)
-                val startY = cy - dir.dy * (length - headSize * 0.4f)
-                val endX = cx + dir.dx * (length - headSize * 0.4f)
-                val endY = cy + dir.dy * (length - headSize * 0.4f)
+                val startX = cx - dir.dx * (length - headSize * 0.3f)
+                val startY = cy - dir.dy * (length - headSize * 0.3f)
+                val endX = cx + dir.dx * (length - headSize * 0.3f)
+                val endY = cy + dir.dy * (length - headSize * 0.3f)
 
                 canvas.drawLine(startX, startY, endX, endY, arrowPaint)
                 drawArrowHead(canvas, cx + dir.dx * length, cy + dir.dy * length, dir.dx.toFloat(), dir.dy.toFloat(), headSize)
