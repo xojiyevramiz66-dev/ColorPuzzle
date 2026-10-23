@@ -1,3 +1,4 @@
+
 package com.example.colorpuzzle
 
 import android.os.Bundle
@@ -7,68 +8,85 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity :
-AppCompatActivity(),
-ColorPuzzleView.OnGameEventListener {
+    AppCompatActivity(),
+    ColorPuzzleView.OnGameEventListener {
 
-private var lives = 3
+    private var level = 1
+    private var lives = 3
 
-private lateinit var tvLives: TextView
-private lateinit var puzzleView: ColorPuzzleView
+    private lateinit var tvLevel: TextView
+    private lateinit var tvLives: TextView
+    private lateinit var puzzleView: ColorPuzzleView
 
-override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
-    setContentView(R.layout.activity_main)
-
-    tvLives = findViewById(R.id.tvLives)
-    puzzleView = findViewById(R.id.puzzleView)
-    puzzleView.onGameEventListener = this
-
-    findViewById<Button>(R.id.btnRestart).setOnClickListener {
-        restartGame()
+    private val prefs by lazy {
+        getSharedPreferences("color_puzzle_progress", MODE_PRIVATE)
     }
 
-    updateLivesUI()
-}
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-override fun onWrongMove() {
-    lives--
-    updateLivesUI()
+        level = prefs.getInt("level", 1).coerceAtLeast(1)
 
-    if (lives <= 0) {
+        tvLevel = findViewById(R.id.tvLevel)
+        tvLives = findViewById(R.id.tvLives)
+        puzzleView = findViewById(R.id.puzzleView)
+
+        puzzleView.onGameEventListener = this
+        puzzleView.loadLevel(level)
+
+        findViewById<Button>(R.id.btnRestart).setOnClickListener {
+            restartCurrentLevel()
+        }
+
+        updateUI()
+    }
+
+    override fun onWrongMove() {
+        lives--
+        updateUI()
+
+        if (lives <= 0) {
+            Toast.makeText(
+                this,
+                "Жизни закончились. Повтори уровень!",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            restartCurrentLevel()
+        } else {
+            Toast.makeText(
+                this,
+                "Путь заблокирован! Жизни: $lives",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    override fun onLevelCompleted() {
+        level++
+        lives = 3
+
+        prefs.edit().putInt("level", level).apply()
+
+        puzzleView.loadLevel(level)
+        updateUI()
+
         Toast.makeText(
             this,
-            "Игра окончена!",
-            Toast.LENGTH_LONG
-        ).show()
-
-        restartGame()
-    } else {
-        Toast.makeText(
-            this,
-            "Путь заблокирован! Осталось жизней: $lives",
+            "Уровень пройден! Уровень $level",
             Toast.LENGTH_SHORT
         ).show()
     }
-}
 
-override fun onLevelCompleted() {
-    Toast.makeText(
-        this,
-        "Уровень пройден!",
-        Toast.LENGTH_LONG
-    ).show()
+    private fun restartCurrentLevel() {
+        lives = 3
+        puzzleView.loadLevel(level)
+        updateUI()
+    }
 
-    restartGame()
-}
-
-private fun restartGame() {
-    lives = 3
-    updateLivesUI()
-    puzzleView.loadLevel1()
-}
-
-private fun updateLivesUI() {
-    tvLives.text = "Жизни: " + "❤️".repeat(lives)
-}
-
+    private fun updateUI() {
+        tvLevel.text = "Уровень $level"
+        tvLives.text = "Жизни: " + "❤️".repeat(lives)
+    }
 }
