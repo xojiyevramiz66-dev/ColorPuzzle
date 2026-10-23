@@ -229,22 +229,19 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun evaluateMove(block: Cell) {
-        // Проверяем, есть ли другие блоки на пути движения текущего блока
+        // Проверяем, есть ли преграда на пути движения блока до края поля
         val isBlocked = blocks.any { other ->
             if (other.id == block.id) return@any false
 
             when (block.direction) {
-                Direction.UP ->
-                    other.gridX == block.gridX && other.gridY < block.gridY
-
-                Direction.DOWN ->
-                    other.gridX == block.gridX && other.gridY > block.gridY
-
-                Direction.LEFT ->
-                    other.gridY == block.gridY && other.gridX < block.gridX
-
-                Direction.RIGHT ->
-                    other.gridY == block.gridY && other.gridX > block.gridX
+                Direction.UP -> 
+                    other.gridX == block.gridX && other.gridY < block.gridY && other.gridY >= 0
+                Direction.DOWN -> 
+                    other.gridX == block.gridX && other.gridY > block.gridY && other.gridY < rows
+                Direction.LEFT -> 
+                    other.gridY == block.gridY && other.gridX < block.gridX && other.gridX >= 0
+                Direction.RIGHT -> 
+                    other.gridY == block.gridY && other.gridX > block.gridX && other.gridX < cols
             }
         }
 
@@ -253,6 +250,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             return
         }
 
+        // Если путь свободен до края — успешно убираем блок с поля
         blocks.remove(block)
         invalidate()
 
