@@ -4,8 +4,10 @@ package com.example.colorpuzzle
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -20,20 +22,19 @@ class ColorPuzzleView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
+    private enum class Direction {
+        UP, DOWN, LEFT, RIGHT
+    }
+
     private data class Cell(
         val id: Int,
         val gridX: Int,
         val gridY: Int,
         val direction: Direction,
         val colorResId: Int,
-        val arrowColorResId: Int,
         var currentX: Float = 0f,
         var currentY: Float = 0f
     )
-
-    private enum class Direction {
-        UP, DOWN, LEFT, RIGHT
-    }
 
     private data class DifficultyMetrics(
         val availableMoves: Int,
@@ -62,7 +63,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         fun onLevelCompleted()
     }
 
-    // Разноцветные блоки.
     private val colors = intArrayOf(
         Color.rgb(255, 82, 82),
         Color.rgb(68, 138, 255),
@@ -74,14 +74,13 @@ class ColorPuzzleView @JvmOverloads constructor(
         Color.rgb(92, 107, 192)
     )
 
-    // Единый белый цвет всех стрелок.
-    private val arrowColor = Color.BLACK
+    private val arrowColor = Color.WHITE
 
     init {
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         loadLevel(1)
     }
 
-    // Размер поля увеличивается по мере прохождения уровней.
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
 
@@ -98,7 +97,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return 10 to 10
     }
 
-    // Плотность блоков постепенно увеличивается.
     private fun calculateDensity(level: Int): Float {
         val progress =
             ((level.coerceAtLeast(1) - 1) / 120f)
@@ -139,9 +137,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    /**
-     * Сохраняет состояние игрового поля в JSON.
-     */
     fun exportState(): String {
         val root = JSONObject()
         root.put("level", currentLevel)
@@ -167,11 +162,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return root.toString()
     }
 
-    /**
-     * Восстанавливает сохранение.
-     * Старые сохранения также загружаются:
-     * цвет стрелок принудительно становится белым.
-     */
     fun restoreState(state: String): Boolean {
         return try {
             val root = JSONObject(state)
@@ -180,9 +170,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             val savedCols = root.getInt("cols")
             val savedRows = root.getInt("rows")
 
-            if (savedLevel != currentLevel) {
-                return false
-            }
+            if (savedLevel != currentLevel) return false
 
             val expectedSize = calculateBoardSize(savedLevel)
 
@@ -238,8 +226,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                         gridX = x,
                         gridY = y,
                         direction = direction,
-                        colorResId = color,
-                        arrowColorResId = arrowColor
+                        colorResId = color
                     )
                 )
             }
@@ -263,7 +250,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    // Создаёт блок случайного цвета с белой стрелкой.
     private fun createCell(
         id: Int,
         x: Int,
@@ -274,13 +260,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         gridX = x,
         gridY = y,
         direction = direction,
-        colorResId = colors[Random.nextInt(colors.size)],
-        arrowColorResId = arrowColor
+        colorResId = colors[Random.nextInt(colors.size)]
     )
 
-    /**
-     * Проверяет, находится ли другой блок на пути стрелки.
-     */
     private fun isPathBlocked(
         candidate: Cell,
         others: List<Cell>
@@ -324,9 +306,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * Проверяет, можно ли удалить все блоки.
-     */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
 
@@ -341,9 +320,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return true
     }
 
-    /**
-     * Генерирует сложный, но проходимый уровень.
-     */
     private fun createHardLevel(
         requestedCount: Int,
         level: Int
@@ -387,9 +363,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                     .coerceAtLeast(0) * 12
 
             val depthPenalty =
-                abs(
-                    metrics.dependencyDepth - desiredDepth
-                ) * 3
+                abs(metrics.dependencyDepth - desiredDepth) * 3
 
             val score =
                 movePenalty +
@@ -433,10 +407,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return fallback
     }
 
-    /**
-     * Добавляет блоки только тогда,
-     * когда их путь не перекрыт ранее созданными блоками.
-     */
     private fun createRandomBranchingAttempt(
         targetCount: Int
     ): MutableList<Cell> {
@@ -476,10 +446,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return result
     }
 
-    /**
-     * Резервная раскладка: стрелки в каждом ряду
-     * направлены в одну сторону.
-     */
     private fun createGuaranteedFallback(
         targetCount: Int
     ): MutableList<Cell> {
@@ -518,10 +484,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return result
     }
 
-    /**
-     * Оценивает число доступных ходов
-     * и глубину зависимостей между блоками.
-     */
     private fun measureDifficulty(
         source: List<Cell>
     ): DifficultyMetrics {
@@ -535,8 +497,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         for (block in source.sortedByDescending { it.id }) {
             val blockers = source.filter { other ->
-                other.id > block.id &&
-                    blocksOnRay(block, other)
+                other.id > block.id && blocksOnRay(block, other)
             }
 
             depthById[block.id] =
@@ -623,51 +584,103 @@ class ColorPuzzleView @JvmOverloads constructor(
         invalidate()
     }
 
+    // Улучшенная графика игрового поля.
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        canvas.drawColor(Color.rgb(245, 245, 245))
+        canvas.drawColor(Color.rgb(8, 12, 25))
 
         if (cellSize <= 0f) return
 
+        val board = RectF(
+            offsetX,
+            offsetY,
+            offsetX + cols * cellSize,
+            offsetY + rows * cellSize
+        )
+
+        val boardInset = cellSize * 0.035f
+
         paint.clearShadowLayer()
-        paint.style = Paint.Style.STROKE
-        paint.color = Color.rgb(218, 222, 228)
-        paint.strokeWidth = 1.5f
+        paint.style = Paint.Style.FILL
 
-        // Горизонтальные линии сетки.
-        for (r in 0..rows) {
-            val y = offsetY + r * cellSize
+        // Тёмный градиент фона поля.
+        paint.shader = LinearGradient(
+            board.left,
+            board.top,
+            board.right,
+            board.bottom,
+            Color.rgb(24, 35, 61),
+            Color.rgb(9, 14, 29),
+            Shader.TileMode.CLAMP
+        )
 
-            canvas.drawLine(
-                offsetX,
-                y,
-                offsetX + cols * cellSize,
-                y,
-                paint
-            )
+        canvas.drawRoundRect(
+            RectF(
+                board.left - boardInset,
+                board.top - boardInset,
+                board.right + boardInset,
+                board.bottom + boardInset
+            ),
+            cellSize * 0.14f,
+            cellSize * 0.14f,
+            paint
+        )
+
+        paint.shader = null
+
+        // Отрисовка ячеек сетки.
+        for (r in 0 until rows) {
+            for (c in 0 until cols) {
+                val left = offsetX + c * cellSize
+                val top = offsetY + r * cellSize
+
+                val cell = RectF(
+                    left + cellSize * 0.018f,
+                    top + cellSize * 0.018f,
+                    left + cellSize * 0.982f,
+                    top + cellSize * 0.982f
+                )
+
+                val radius = cellSize * 0.075f
+
+                paint.style = Paint.Style.FILL
+                paint.shader = LinearGradient(
+                    cell.left,
+                    cell.top,
+                    cell.right,
+                    cell.bottom,
+                    Color.rgb(23, 33, 55),
+                    Color.rgb(11, 18, 33),
+                    Shader.TileMode.CLAMP
+                )
+
+                canvas.drawRoundRect(
+                    cell,
+                    radius,
+                    radius,
+                    paint
+                )
+
+                paint.shader = null
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth =
+                    (cellSize * 0.008f).coerceAtLeast(1f)
+
+                paint.color = Color.rgb(42, 57, 83)
+
+                canvas.drawRoundRect(
+                    cell,
+                    radius,
+                    radius,
+                    paint
+                )
+            }
         }
 
-        // Вертикальные линии сетки.
-        for (c in 0..cols) {
-            val x = offsetX + c * cellSize
-
-            canvas.drawLine(
-                x,
-                offsetY,
-                x,
-                offsetY + rows * cellSize,
-                paint
-            )
-        }
-
-        // Цветные блоки с белыми стрелками.
+        // Объёмные цветные блоки.
         for (block in blocks) {
-            paint.clearShadowLayer()
-            paint.style = Paint.Style.FILL
-            paint.color = block.colorResId
-
-            val inset = cellSize * 0.08f
+            val inset = cellSize * 0.075f
 
             val rect = RectF(
                 block.currentX + inset,
@@ -676,20 +689,88 @@ class ColorPuzzleView @JvmOverloads constructor(
                 block.currentY + cellSize - inset
             )
 
+            val radius = cellSize * 0.17f
+
+            paint.clearShadowLayer()
+            paint.style = Paint.Style.FILL
+
+            paint.shader = LinearGradient(
+                rect.left,
+                rect.top,
+                rect.right,
+                rect.bottom,
+                shadeColor(block.colorResId, 1.24f),
+                shadeColor(block.colorResId, 0.68f),
+                Shader.TileMode.CLAMP
+            )
+
             canvas.drawRoundRect(
                 rect,
-                cellSize * 0.16f,
-                cellSize * 0.16f,
+                radius,
+                radius,
+                paint
+            )
+
+            paint.shader = null
+
+            // Светлая окантовка блока.
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth =
+                (cellSize * 0.018f).coerceAtLeast(1.2f)
+
+            paint.color =
+                shadeColor(block.colorResId, 1.38f)
+
+            canvas.drawRoundRect(
+                rect,
+                radius,
+                radius,
+                paint
+            )
+
+            // Верхний блик.
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(48, 255, 255, 255)
+
+            val highlight = RectF(
+                rect.left + cellSize * 0.055f,
+                rect.top + cellSize * 0.045f,
+                rect.right - cellSize * 0.055f,
+                rect.top + cellSize * 0.15f
+            )
+
+            canvas.drawRoundRect(
+                highlight,
+                cellSize * 0.06f,
+                cellSize * 0.06f,
                 paint
             )
 
             drawArrow(canvas, block)
         }
+
+        paint.shader = null
+        paint.clearShadowLayer()
+        paint.style = Paint.Style.FILL
     }
 
-    /**
-     * Рисует белую стрелку с тенью.
-     */
+    private fun shadeColor(
+        color: Int,
+        factor: Float
+    ): Int {
+        val red =
+            (Color.red(color) * factor).toInt().coerceIn(0, 255)
+
+        val green =
+            (Color.green(color) * factor).toInt().coerceIn(0, 255)
+
+        val blue =
+            (Color.blue(color) * factor).toInt().coerceIn(0, 255)
+
+        return Color.rgb(red, green, blue)
+    }
+
+    // Белые стрелки с мягкой тенью.
     private fun drawArrow(
         canvas: Canvas,
         block: Cell
@@ -727,8 +808,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             }
         }
 
-        // Тень помогает различать белую стрелку
-        // на ярком фоне блока.
+        paint.shader = null
+
         paint.setShadowLayer(
             cellSize * 0.035f,
             0f,
@@ -736,7 +817,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             Color.BLACK
         )
 
-        // ВАЖНО: цвет стрелки всегда белый.
         paint.color = arrowColor
         paint.style = Paint.Style.STROKE
         paint.strokeWidth =
@@ -745,7 +825,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
 
-        // Основная линия стрелки.
         canvas.drawLine(
             startX,
             startY,
@@ -754,7 +833,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             paint
         )
 
-        // Наконечник стрелки.
         when (block.direction) {
             Direction.UP -> {
                 canvas.drawLine(
@@ -845,10 +923,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return true
     }
 
-    /**
-     * Удаляет блок, если путь стрелки свободен.
-     * Уведомляет MainActivity о ходе, ошибке или победе.
-     */
     private fun evaluateMove(block: Cell) {
         if (
             isPathBlocked(
