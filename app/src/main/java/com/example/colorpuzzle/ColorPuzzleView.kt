@@ -1,4 +1,3 @@
-
 package com.example.colorpuzzle
 
 import android.content.Context
@@ -26,6 +25,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         val gridY: Int,
         val direction: Direction,
         val colorResId: Int,
+        val arrowColorResId: Int,
         var currentX: Float = 0f,
         var currentY: Float = 0f
     )
@@ -61,6 +61,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         fun onLevelCompleted()
     }
 
+    // Цвета блоков.
     private val colors = intArrayOf(
         Color.rgb(255, 82, 82),
         Color.rgb(68, 138, 255),
@@ -70,6 +71,18 @@ class ColorPuzzleView @JvmOverloads constructor(
         Color.rgb(38, 166, 154),
         Color.rgb(255, 112, 67),
         Color.rgb(92, 107, 192)
+    )
+
+    // Отдельная палитра цветов стрелок.
+    private val arrowColors = intArrayOf(
+        Color.WHITE,
+        Color.BLACK,
+        Color.rgb(255, 235, 59),
+        Color.rgb(0, 230, 255),
+        Color.rgb(255, 64, 129),
+        Color.rgb(124, 255, 107),
+        Color.rgb(255, 145, 0),
+        Color.rgb(224, 176, 255)
     )
 
     init {
@@ -135,8 +148,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Экспортирует текущее состояние поля в JSON.
-     * Используется MainActivity для сохранения прогресса.
+     * Сохраняет состояние игрового поля в JSON,
+     * включая отдельный цвет каждой стрелки.
      */
     fun exportState(): String {
         val root = JSONObject()
@@ -154,6 +167,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                     put("y", block.gridY)
                     put("direction", block.direction.name)
                     put("color", block.colorResId)
+                    put("arrowColor", block.arrowColorResId)
                 }
             )
         }
@@ -163,9 +177,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Восстанавливает поле из JSON.
-     * Возвращает false, если данные повреждены
-     * или относятся к другому уровню.
+     * Восстанавливает сохранение.
+     * Поддерживает старые сохранения без arrowColor.
      */
     fun restoreState(state: String): Boolean {
         return try {
@@ -181,7 +194,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             val expectedSize = calculateBoardSize(savedLevel)
 
-            if (savedCols != expectedSize.first ||
+            if (
+                savedCols != expectedSize.first ||
                 savedRows != expectedSize.second
             ) {
                 return false
@@ -189,7 +203,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             val array = root.getJSONArray("blocks")
 
-            // Максимум один блок на клетку.
             if (array.length() > savedCols * savedRows) {
                 return false
             }
@@ -204,20 +217,35 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val id = item.getInt("id")
                 val x = item.getInt("x")
                 val y = item.getInt("y")
+
                 val direction = Direction.valueOf(
                     item.getString("direction")
                 )
+
                 val color = item.getInt("color")
 
-                if (id < 1 ||
+                // Для старых сохранений выбираем цвет по ID.
+                val arrowColor = item.optInt(
+                    "arrowColor",
+                    arrowColors[
+                        ((id - 1) % arrowColors.size)
+                    ]
+                )
+
+                if (
+                    id < 1 ||
                     x !in 0 until savedCols ||
                     y !in 0 until savedRows ||
-                    color !in colors
+                    color !in colors ||
+                    arrowColor !in arrowColors
                 ) {
                     return false
                 }
 
-                if (!ids.add(id) || !positions.add(x to y)) {
+                if (
+                    !ids.add(id) ||
+                    !positions.add(x to y)
+                ) {
                     return false
                 }
 
@@ -227,7 +255,8 @@ class ColorPuzzleView @JvmOverloads constructor(
                         gridX = x,
                         gridY = y,
                         direction = direction,
-                        colorResId = color
+                        colorResId = color,
+                        arrowColorResId = arrowColor
                     )
                 )
             }
@@ -251,6 +280,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
+    // Создаёт блок со случайным цветом и цветом стрелки.
     private fun createCell(
         id: Int,
         x: Int,
@@ -261,7 +291,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         gridX = x,
         gridY = y,
         direction = direction,
-        colorResId = colors[Random.nextInt(colors.size)]
+        colorResId = colors[Random.nextInt(colors.size)],
+        arrowColorResId =
+            arrowColors[Random.nextInt(arrowColors.size)]
     )
 
     /**
@@ -305,11 +337,13 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun countAvailableMoves(
         source: List<Cell>
     ): Int {
-        return source.count { isAvailable(it, source) }
+        return source.count {
+            isAvailable(it, source)
+        }
     }
 
     /**
-     * Проверяет, можно ли удалить все блоки по правилам игры.
+     * Проверяет, можно ли удалить все блоки.
      */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
@@ -327,8 +361,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     /**
      * Генерирует сложный, но проходимый уровень.
-     * Если случайная генерация не удалась, использует
-     * гарантированно проходимую резервную раскладку.
      */
     private fun createHardLevel(
         requestedCount: Int,
@@ -373,7 +405,9 @@ class ColorPuzzleView @JvmOverloads constructor(
                     .coerceAtLeast(0) * 12
 
             val depthPenalty =
-                abs(metrics.dependencyDepth - desiredDepth) * 3
+                abs(
+                    metrics.dependencyDepth - desiredDepth
+                ) * 3
 
             val score =
                 movePenalty +
@@ -420,7 +454,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     /**
      * Каждый новый блок добавляется только тогда,
      * когда его путь не перекрыт уже созданными блоками.
-     * Поэтому более поздние блоки можно удалять первыми.
      */
     private fun createRandomBranchingAttempt(
         targetCount: Int
@@ -439,7 +472,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         for ((x, y) in positions) {
             if (result.size >= targetCount) break
 
-            val directions = Direction.values().toList().shuffled()
+            val directions =
+                Direction.values().toList().shuffled()
 
             for (direction in directions) {
                 val candidate = createCell(
@@ -461,9 +495,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Резервная раскладка: каждый ряд содержит стрелки,
-     * направленные в одну сторону. Внутри ряда блоки
-     * удаляются от края к краю без тупиков.
+     * Резервная раскладка: стрелки в каждом ряду
+     * направлены в одну сторону, что обеспечивает
+     * возможность последовательного удаления.
      */
     private fun createGuaranteedFallback(
         targetCount: Int
@@ -504,7 +538,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Оценивает число доступных ходов и глубину зависимостей.
+     * Оценивает число доступных ходов
+     * и глубину зависимостей между блоками.
      */
     private fun measureDifficulty(
         source: List<Cell>
@@ -586,8 +621,11 @@ class ColorPuzzleView @JvmOverloads constructor(
         if (cellSize <= 0f) return
 
         blocks.forEach { block ->
-            block.currentX = offsetX + block.gridX * cellSize
-            block.currentY = offsetY + block.gridY * cellSize
+            block.currentX =
+                offsetX + block.gridX * cellSize
+
+            block.currentY =
+                offsetY + block.gridY * cellSize
         }
     }
 
@@ -668,6 +706,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Рисует стрелку с индивидуальным цветом и тенью.
+     */
     private fun drawArrow(
         canvas: Canvas,
         block: Cell
@@ -705,8 +746,15 @@ class ColorPuzzleView @JvmOverloads constructor(
             }
         }
 
-        paint.clearShadowLayer()
-        paint.color = Color.WHITE
+        // Тень помогает видеть стрелку на ярком фоне.
+        paint.setShadowLayer(
+            cellSize * 0.035f,
+            0f,
+            0f,
+            Color.BLACK
+        )
+
+        paint.color = block.arrowColorResId
         paint.style = Paint.Style.STROKE
         paint.strokeWidth =
             (cellSize * 0.055f).coerceAtLeast(2f)
@@ -714,6 +762,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
 
+        // Основная линия стрелки.
         canvas.drawLine(
             startX,
             startY,
@@ -722,6 +771,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             paint
         )
 
+        // Наконечник стрелки.
         when (block.direction) {
             Direction.UP -> {
                 canvas.drawLine(
@@ -776,6 +826,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             }
         }
 
+        paint.clearShadowLayer()
         paint.strokeCap = Paint.Cap.BUTT
         paint.style = Paint.Style.FILL
     }
