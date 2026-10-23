@@ -1,3 +1,4 @@
+
 package com.example.colorpuzzle
 
 import android.content.Context
@@ -61,7 +62,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         fun onLevelCompleted()
     }
 
-    // Цвета блоков.
+    // Разноцветные блоки.
     private val colors = intArrayOf(
         Color.rgb(255, 82, 82),
         Color.rgb(68, 138, 255),
@@ -73,17 +74,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         Color.rgb(92, 107, 192)
     )
 
-    // Отдельная палитра цветов стрелок.
-    private val arrowColors = intArrayOf(
-        Color.WHITE,
-        Color.BLACK,
-        Color.rgb(255, 235, 59),
-        Color.rgb(0, 230, 255),
-        Color.rgb(255, 64, 129),
-        Color.rgb(124, 255, 107),
-        Color.rgb(255, 145, 0),
-        Color.rgb(224, 176, 255)
-    )
+    // Единый белый цвет всех стрелок.
+    private val arrowColor = Color.WHITE
 
     init {
         loadLevel(1)
@@ -148,8 +140,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Сохраняет состояние игрового поля в JSON,
-     * включая отдельный цвет каждой стрелки.
+     * Сохраняет состояние игрового поля в JSON.
      */
     fun exportState(): String {
         val root = JSONObject()
@@ -167,7 +158,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                     put("y", block.gridY)
                     put("direction", block.direction.name)
                     put("color", block.colorResId)
-                    put("arrowColor", block.arrowColorResId)
+                    put("arrowColor", arrowColor)
                 }
             )
         }
@@ -178,7 +169,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     /**
      * Восстанавливает сохранение.
-     * Поддерживает старые сохранения без arrowColor.
+     * Старые сохранения также загружаются:
+     * цвет стрелок принудительно становится белым.
      */
     fun restoreState(state: String): Boolean {
         return try {
@@ -224,20 +216,11 @@ class ColorPuzzleView @JvmOverloads constructor(
 
                 val color = item.getInt("color")
 
-                // Для старых сохранений выбираем цвет по ID.
-                val arrowColor = item.optInt(
-                    "arrowColor",
-                    arrowColors[
-                        ((id - 1) % arrowColors.size)
-                    ]
-                )
-
                 if (
                     id < 1 ||
                     x !in 0 until savedCols ||
                     y !in 0 until savedRows ||
-                    color !in colors ||
-                    arrowColor !in arrowColors
+                    color !in colors
                 ) {
                     return false
                 }
@@ -280,7 +263,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    // Создаёт блок со случайным цветом и цветом стрелки.
+    // Создаёт блок случайного цвета с белой стрелкой.
     private fun createCell(
         id: Int,
         x: Int,
@@ -292,8 +275,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         gridY = y,
         direction = direction,
         colorResId = colors[Random.nextInt(colors.size)],
-        arrowColorResId =
-            arrowColors[Random.nextInt(arrowColors.size)]
+        arrowColorResId = arrowColor
     )
 
     /**
@@ -452,8 +434,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Каждый новый блок добавляется только тогда,
-     * когда его путь не перекрыт уже созданными блоками.
+     * Добавляет блоки только тогда,
+     * когда их путь не перекрыт ранее созданными блоками.
      */
     private fun createRandomBranchingAttempt(
         targetCount: Int
@@ -496,8 +478,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     /**
      * Резервная раскладка: стрелки в каждом ряду
-     * направлены в одну сторону, что обеспечивает
-     * возможность последовательного удаления.
+     * направлены в одну сторону.
      */
     private fun createGuaranteedFallback(
         targetCount: Int
@@ -680,7 +661,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         }
 
-        // Цветные блоки со стрелками.
+        // Цветные блоки с белыми стрелками.
         for (block in blocks) {
             paint.clearShadowLayer()
             paint.style = Paint.Style.FILL
@@ -707,7 +688,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Рисует стрелку с индивидуальным цветом и тенью.
+     * Рисует белую стрелку с тенью.
      */
     private fun drawArrow(
         canvas: Canvas,
@@ -746,7 +727,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             }
         }
 
-        // Тень помогает видеть стрелку на ярком фоне.
+        // Тень помогает различать белую стрелку
+        // на ярком фоне блока.
         paint.setShadowLayer(
             cellSize * 0.035f,
             0f,
@@ -754,7 +736,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             Color.BLACK
         )
 
-        paint.color = block.arrowColorResId
+        // ВАЖНО: цвет стрелки всегда белый.
+        paint.color = arrowColor
         paint.style = Paint.Style.STROKE
         paint.strokeWidth =
             (cellSize * 0.055f).coerceAtLeast(2f)
