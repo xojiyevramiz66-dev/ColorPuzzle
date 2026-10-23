@@ -61,7 +61,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val blockPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
-    private val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
 
     private val blocks = mutableListOf<Cell>()
     
@@ -99,17 +98,13 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
-
         for (first in 4..10) {
             val stagesInRow = 11 - first
-
             if (stage < stagesInRow) {
                 return first to (first + stage)
             }
-
             stage -= stagesInRow
         }
-
         return 10 to 10
     }
 
@@ -162,17 +157,14 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         val array = JSONArray()
         blocks.forEach { block ->
-            array.put(
-                JSONObject().apply {
-                    put("id", block.id)
-                    put("x", block.gridX)
-                    put("y", block.gridY)
-                    put("direction", block.direction.name)
-                    put("color", block.colorResId)
-                }
-            )
+            array.put(JSONObject().apply {
+                put("id", block.id)
+                put("x", block.gridX)
+                put("y", block.gridY)
+                put("direction", block.direction.name)
+                put("color", block.colorResId)
+            })
         }
-
         root.put("blocks", array)
         return root.toString()
     }
@@ -185,7 +177,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             val savedRows = root.getInt("rows")
 
             if (savedLevel != currentLevel) return false
-
             val expectedSize = calculateBoardSize(savedLevel)
             if (savedCols != expectedSize.first || savedRows != expectedSize.second) return false
 
@@ -218,8 +209,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             blocks.clear()
             blocks.addAll(restored)
-
             lastDifficultyMetrics = measureDifficulty(blocks)
+
             updateBoardGeometry(width, height)
             positionBlocks()
             invalidate()
@@ -241,7 +232,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // =====================================================================
-    // Логика и генерация
+    // Генерация уровня (ИСПРАВЛЕНО)
     // =====================================================================
 
     private fun createCell(id: Int, x: Int, y: Int, direction: Direction) = Cell(
@@ -285,25 +276,24 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun createHardLevel(requestedCount: Int, level: Int): MutableList<Cell> {
         val target = requestedCount.coerceIn(1, cols * rows - 1)
 
-        // УЖЕСТОЧЕНИЕ: На высоких уровнях требуем только 1 доступный ход
+        // Возвращаем адекватную сложность. 1 ход — только для хардкора.
         val desiredMoves = when {
-            level <= 3 -> 3      // Обучение
-            level <= 8 -> 2      // Разогрев
-            else -> 1            // Хардкор: только 1 правильный путь
+            level <= 3 -> 3
+            level <= 10 -> 2
+            level <= 25 -> 2
+            else -> 1 
         }
 
-        // УВЕЛИЧЕНИЕ ГЛУБИНЫ: Матрешка должна быть максимально длинной
         val desiredDepth = when {
             level <= 3 -> 2
-            level <= 8 -> target / 2
-            else -> target - 1
+            level <= 10 -> target / 3
+            else -> target / 2
         }.coerceAtLeast(1)
 
         var bestLevel: MutableList<Cell>? = null
         var bestScore = Int.MAX_VALUE
 
-        // Увеличиваем количество попыток для сложных уровней
-        val attempts = if (target >= 50) 400 else 300
+        val attempts = if (target >= 50) 300 else 250
 
         for (attempt in 0 until attempts) {
             val candidate = createRandomBranchingAttempt(target)
@@ -312,20 +302,16 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             val metrics = measureDifficulty(candidate)
 
-            // ЖЕСТКИЙ ОТСЕВ: Если ходов больше, чем мы хотим — пропускаем
-            if (metrics.availableMoves > desiredMoves) continue
-
-            // Штрафы для поиска идеального уровня
-            val movePenalty = (metrics.availableMoves - desiredMoves).coerceAtLeast(0) * 50
-            val depthPenalty = abs(metrics.dependencyDepth - desiredDepth) * 10
-            val score = movePenalty + depthPenalty + Random.nextInt(0, 10)
+            // Не отсеиваем жестко, а просто штрафуем
+            val movePenalty = (metrics.availableMoves - desiredMoves).coerceAtLeast(0) * 15
+            val depthPenalty = abs(metrics.dependencyDepth - desiredDepth) * 5
+            val score = movePenalty + depthPenalty + Random.nextInt(0, 5)
 
             if (score < bestScore) {
                 bestScore = score
                 bestLevel = candidate
             }
 
-            // Если нашли идеальный баланс — выходим
             if (metrics.availableMoves <= desiredMoves && metrics.dependencyDepth >= desiredDepth) {
                 bestLevel = candidate
                 break
@@ -349,34 +335,63 @@ class ColorPuzzleView @JvmOverloads constructor(
         for ((x, y) in positions) {
             if (result.size >= targetCount) break
 
-            val directions = Direction.values().toList().shuffled()
-            for (direction in directions) {
-                val candidate = createCell(id, x, y, direction)
-                if (!isPathBlocked(candidate, result)) {
-                    result.add(candidate)
-                    id++
-                    break
-                }
+            // Пытаемся поставить блок так, чтобы он был доступен (не упирался в других)
+            // Если ставить "заблокированные" блоки — игра сломается.
+            val availableDirections = Direction.values().filter { dir ->
+                val candidate = createCell(id, x, y, dir)
+                !isPathBlocked(candidate, result)
+            }.shuffled()
+
+            if (availableDirections.isNotEmpty()) {
+                val direction = availableDirections.first()
+                result.add(createCell(id, x, y, direction))
+                id++
             }
         }
+
         return result
     }
 
     private fun createGuaranteedFallback(targetCount: Int): MutableList<Cell> {
+        // Безопасный fallback: ставим блоки в шахматном порядке, чтобы они не блокировали друг друга
         val result = mutableListOf<Cell>()
-        val rowOrder = (0 until rows).shuffled()
-
         var id = 1
-        for (y in rowOrder) {
-            val leftToRight = Random.nextBoolean()
-            val xOrder = if (leftToRight) (0 until cols).toList() else (cols - 1 downTo 0).toList()
-            val direction = if (leftToRight) Direction.RIGHT else Direction.LEFT
 
-            for (x in xOrder) {
+        for (y in 0 until rows) {
+            for (x in 0 until cols) {
                 if (result.size >= targetCount) return result
-                result.add(createCell(id++, x, y, direction))
+
+                // Чередуем направления, чтобы не было "стен"
+                val direction = when {
+                    x % 2 == 0 -> Direction.LEFT
+                    else -> Direction.RIGHT
+                }
+                
+                val candidate = createCell(id, x, y, direction)
+                // Проверяем, что не заблокирован предыдущими
+                if (!isPathBlocked(candidate, result)) {
+                    result.add(candidate)
+                    id++
+                }
             }
         }
+        
+        // Если всё еще не набрали, добиваем вверх/вниз
+        if (result.size < targetCount) {
+            for (y in 0 until rows) {
+                for (x in 0 until cols) {
+                    if (result.size >= targetCount) return result
+                    if (result.any { it.gridX == x && it.gridY == y }) continue
+                    
+                    val candidate = createCell(id, x, y, Direction.UP)
+                    if (!isPathBlocked(candidate, result)) {
+                        result.add(candidate)
+                        id++
+                    }
+                }
+            }
+        }
+
         return result
     }
 
@@ -410,7 +425,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // =====================================================================
-    // Геометрия и отрисовка
+    // Геометрия и отрисовка (осталось без изменений)
     // =====================================================================
 
     private fun updateBoardGeometry(w: Int, h: Int) {
@@ -443,7 +458,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         val board = RectF(offsetX, offsetY, offsetX + cols * cellSize, offsetY + rows * cellSize)
 
-        // 1. Тёмная подложка доски с тенью
         paint.shader = null
         paint.setShadowLayer(cellSize * 0.20f, 0f, cellSize * 0.10f, Color.argb(100, 0, 0, 0))
         paint.style = Paint.Style.FILL
@@ -451,7 +465,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         canvas.drawRoundRect(board, cellSize * 0.16f, cellSize * 0.16f, paint)
         paint.clearShadowLayer()
 
-        // 2. Сетка поля
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1.4f
         paint.color = Color.rgb(55, 71, 103)
@@ -465,7 +478,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             canvas.drawLine(offsetX, y, offsetX + cols * cellSize, y, paint)
         }
 
-        // 3. Блоки
         for (block in blocks) {
             val inset = cellSize * 0.08f
             val baseLeft = block.currentX + inset
