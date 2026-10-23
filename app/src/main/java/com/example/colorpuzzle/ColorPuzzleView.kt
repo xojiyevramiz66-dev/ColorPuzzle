@@ -1,3 +1,4 @@
+
 package com.example.colorpuzzle
 
 import android.content.Context
@@ -79,8 +80,10 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * INSANE: уровни 10001+ стремятся к заполненности 97%.
-     * Это целевая плотность, а не гарантия фактического числа блоков.
+     * IMPOSSIBLE+:
+     * плотность постепенно увеличивается до 99.9%.
+     * Фактическое количество блоков зависит от размера поля
+     * и возможности создать решаемую конфигурацию.
      */
     private fun calculateDensity(level: Int): Float {
         return when {
@@ -88,8 +91,9 @@ class ColorPuzzleView @JvmOverloads constructor(
             level <= 30 -> 0.80f
             level <= 60 -> 0.85f
             level <= 100 -> 0.90f
-            level < 10_001 -> 0.95f
-            else -> 0.97f
+            level < 1_001 -> 0.95f
+            level < 10_001 -> 0.98f
+            else -> 0.999f
         }
     }
 
@@ -136,8 +140,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Стрелка заблокирована, если на её пути к краю
-     * поля находится другой блок в той же строке или колонке.
+     * Блок доступен, если на пути стрелки к краю
+     * поля нет другого блока в той же строке или колонке.
      */
     private fun isPathBlocked(
         candidate: Cell,
@@ -174,8 +178,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Проверка решаемости: пока остаётся хотя бы один блок,
-     * должен существовать блок, который можно удалить.
+     * Проверяем, можно ли удалить все блоки.
+     * На каждом шаге должен существовать хотя бы один
+     * доступный блок.
      */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
@@ -184,7 +189,9 @@ class ColorPuzzleView @JvmOverloads constructor(
             val removable = remaining.firstOrNull { block ->
                 !isPathBlocked(
                     block,
-                    remaining.filter { other -> other.id != block.id }
+                    remaining.filter { other ->
+                        other.id != block.id
+                    }
                 )
             } ?: return false
 
@@ -196,9 +203,14 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     /*
      * Генератор сложных уровней.
-     * Для INSANE увеличено количество попыток поиска.
-     * Если заданную плотность не удаётся получить,
-     * генератор постепенно уменьшает количество блоков.
+     *
+     * Условия принятия:
+     * 1. Получено требуемое число блоков.
+     * 2. Все блоки можно удалить.
+     * 3. В начале доступен ровно один ход.
+     *
+     * Если подходящее поле не найдено, количество блоков
+     * постепенно уменьшается.
      */
     private fun createHardLevel(
         requestedCount: Int,
@@ -211,7 +223,11 @@ class ColorPuzzleView @JvmOverloads constructor(
         )
 
         while (targetCount >= 1) {
-            val attempts = if (level >= 10_001) 600 else 400
+            val attempts = when {
+                level >= 10_001 -> 180
+                level >= 1_001 -> 220
+                else -> 400
+            }
 
             repeat(attempts) {
                 val result = mutableListOf<Cell>()
@@ -225,7 +241,8 @@ class ColorPuzzleView @JvmOverloads constructor(
                 for ((x, y) in positions) {
                     if (result.size >= targetCount) break
 
-                    val directions = Direction.values().toList().shuffled()
+                    val directions =
+                        Direction.values().toList().shuffled()
 
                     val direction = directions.firstOrNull { dir ->
                         val candidate = createCell(
@@ -253,12 +270,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
                 val available = countAvailableMoves(result)
 
-                val accepted = when {
-                    targetCount >= 12 -> available == 1
-                    else -> available in 1..2
-                }
-
-                if (accepted) {
+                // IMPOSSIBLE+: ровно один первый доступный ход.
+                if (available == 1) {
                     return result
                 }
             }
@@ -266,7 +279,10 @@ class ColorPuzzleView @JvmOverloads constructor(
             targetCount--
         }
 
-        // Запасной вариант, чтобы игра могла продолжить работу.
+        /*
+         * Запасной вариант: гарантируем, что игра сможет
+         * продолжить работу, если сложное поле не найдено.
+         */
         return mutableListOf(
             createCell(
                 id = 1,
