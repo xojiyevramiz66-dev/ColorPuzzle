@@ -1,6 +1,8 @@
-
 package com.example.colorpuzzle
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -9,6 +11,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.AccelerateInterpolator
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
@@ -46,6 +49,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     private var offsetX = 0f
     private var offsetY = 0f
     private var currentLevel = 1
+    private var animatingBlockId: Int? = null
 
     private var lastDifficultyMetrics =
         DifficultyMetrics(0, 0, 0)
@@ -62,14 +66,14 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private val colors = intArrayOf(
-        Color.rgb(255, 82, 82),
-        Color.rgb(68, 138, 255),
-        Color.rgb(76, 175, 80),
-        Color.rgb(255, 179, 0),
-        Color.rgb(171, 71, 188),
-        Color.rgb(38, 166, 154),
-        Color.rgb(255, 112, 67),
-        Color.rgb(92, 107, 192)
+        Color.rgb(255, 92, 92),
+        Color.rgb(52, 152, 219),
+        Color.rgb(46, 204, 113),
+        Color.rgb(241, 196, 15),
+        Color.rgb(155, 89, 182),
+        Color.rgb(26, 188, 156),
+        Color.rgb(230, 126, 34),
+        Color.rgb(52, 73, 94)
     )
 
     private val arrowColor = Color.WHITE
@@ -79,7 +83,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    // Размер игрового поля зависит от номера уровня.
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
 
@@ -106,6 +109,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     fun loadLevel(level: Int) {
         currentLevel = level.coerceAtLeast(1)
+        animatingBlockId = null
 
         val (newCols, newRows) =
             calculateBoardSize(currentLevel)
@@ -136,7 +140,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    // Сохранение текущего состояния в JSON.
     fun exportState(): String {
         val root = JSONObject()
 
@@ -163,7 +166,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return root.toString()
     }
 
-    // Восстановление состояния из JSON.
     fun restoreState(state: String): Boolean {
         return try {
             val root = JSONObject(state)
@@ -236,6 +238,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             cols = savedCols
             rows = savedRows
             currentLevel = savedLevel
+            animatingBlockId = null
 
             blocks.clear()
             blocks.addAll(restored)
@@ -265,7 +268,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         colorResId = colors[Random.nextInt(colors.size)]
     )
 
-    // Проверяет, есть ли блок на пути движения стрелки.
     private fun isPathBlocked(
         candidate: Cell,
         others: List<Cell>
@@ -309,7 +311,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    // Проверяет, можно ли удалить все блоки.
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
 
@@ -448,7 +449,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return result
     }
 
-    // Гарантированно проходимая резервная расстановка.
     private fun createGuaranteedFallback(
         targetCount: Int
     ): MutableList<Cell> {
@@ -545,7 +545,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    // Масштабирует сетку под размеры экрана.
     private fun updateBoardGeometry(w: Int, h: Int) {
         if (w <= 0 || h <= 0) return
 
@@ -586,7 +585,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         invalidate()
     }
 
-    // ПЛОСКАЯ 2D-ГРАФИКА: без объёмных граней и теней.
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
@@ -608,7 +606,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         canvas.drawRect(board, paint)
 
-        // Простая тонкая сетка.
+        // Тонкая сетка поля.
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1f
         paint.color = Color.rgb(205, 212, 222)
@@ -637,9 +635,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         }
 
-        // Обычные плоские цветные блоки.
-        paint.style = Paint.Style.FILL
-
+        // Рендеринг блоков с мягкими эстетичными тенями.
         for (block in blocks) {
             val inset = cellSize * 0.08f
 
@@ -650,16 +646,20 @@ class ColorPuzzleView @JvmOverloads constructor(
                 block.currentY + cellSize - inset
             )
 
-            paint.shader = null
-            paint.clearShadowLayer()
+            // Мягкая падающая тень для создания глубины
+            paint.setShadowLayer(cellSize * 0.12f, 0f, cellSize * 0.06f, Color.argb(45, 0, 0, 0))
+            paint.style = Paint.Style.FILL
             paint.color = block.colorResId
 
             canvas.drawRoundRect(
                 rect,
-                cellSize * 0.10f,
-                cellSize * 0.10f,
+                cellSize * 0.12f,
+                cellSize * 0.12f,
                 paint
             )
+
+            // Убираем тень перед отрисовкой стрелки, чтобы она была чской
+            paint.clearShadowLayer()
 
             drawFlatArrow(
                 canvas,
@@ -675,7 +675,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
     }
 
-    // Простая белая стрелка без объёмных эффектов.
     private fun drawFlatArrow(
         canvas: Canvas,
         cx: Float,
@@ -742,7 +741,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> return true
 
             MotionEvent.ACTION_UP -> {
-                if (cellSize <= 0f) return true
+                if (cellSize <= 0f || animatingBlockId != null) return true
 
                 val block = blocks.firstOrNull { item ->
                     event.x >= item.currentX &&
@@ -779,13 +778,47 @@ class ColorPuzzleView @JvmOverloads constructor(
             return
         }
 
-        blocks.remove(block)
-        invalidate()
+        // Блокируем множественные нажатия во время анимации вылета
+        animatingBlockId = block.id
 
-        if (blocks.isEmpty()) {
-            onGameEventListener?.onLevelCompleted()
-        } else {
-            onGameEventListener?.onMoveMade()
+        // Вычисляем траекторию плавного вылета блока за пределы экрана
+        val distance = maxOf(width, height).toFloat()
+        var targetX = block.currentX
+        var targetY = block.currentY
+
+        when (block.direction) {
+            Direction.UP -> targetY -= distance
+            Direction.DOWN -> targetY += distance
+            Direction.LEFT -> targetX -= distance
+            Direction.RIGHT -> targetX += distance
         }
+
+        val startX = block.currentX
+        val startY = block.currentY
+
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 180
+            interpolator = AccelerateInterpolator()
+            addUpdateListener { animation ->
+                val fraction = animation.animatedValue as Float
+                block.currentX = startX + (targetX - startX) * fraction
+                block.currentY = startY + (targetY - startY) * fraction
+                invalidate()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    blocks.remove(block)
+                    animatingBlockId = null
+                    invalidate()
+
+                    if (blocks.isEmpty()) {
+                        onGameEventListener?.onLevelCompleted()
+                    } else {
+                        onGameEventListener?.onMoveMade()
+                    }
+                }
+            })
+        }
+        animator.start()
     }
 }
