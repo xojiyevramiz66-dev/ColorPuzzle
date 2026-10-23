@@ -7,6 +7,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.os.Build
 import android.util.AttributeSet
@@ -68,6 +69,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val blockPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
+    
+    // Контур для изогнутых стрелок
+    private val arrowPath = Path()
 
     private val blocks = mutableListOf<Cell>()
     private var runningAnimator: ValueAnimator? = null
@@ -269,7 +273,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun isPathBlocked(candidate: Cell, others: List<Cell>): Boolean {
-        // ИЗМЕНЕНИЕ: Изогнутые блоки требуют свободного пути ОБЕИХ осей.
+        // Изогнутые блоки требуют свободного пути ОБЕИХ осей (и горизонтали, и вертикали).
         if (candidate.directions.size == 1 && candidate.directions[0].name.startsWith("CORNER")) {
             return candidate.directions.all { dir ->
                 isRayBlocked(candidate.gridX, candidate.gridY, dir, others)
@@ -578,9 +582,14 @@ class ColorPuzzleView @JvmOverloads constructor(
             for (dir in directions) {
                 val tipX = cx + dir.dx * length
                 val tipY = cy + dir.dy * length
-                // Рисуем наконечник
-                canvas.drawLine(tipX, tipY, tipX - dir.dx * head - dir.dy * head, tipY - dir.dy * head + dir.dx * head, arrowPaint)
-                canvas.drawLine(tipX, tipY, tipX - dir.dx * head + dir.dy * head, tipY - dir.dy * head - dir.dx * head, arrowPaint)
+                
+                if (dir.dx != 0) { // Горизонтальная
+                    canvas.drawLine(tipX, tipY, tipX - dir.dx * head, tipY + head * 0.6f, arrowPaint)
+                    canvas.drawLine(tipX, tipY, tipX - dir.dx * head, tipY - head * 0.6f, arrowPaint)
+                } else { // Вертикальная
+                    canvas.drawLine(tipX, tipY, tipX + head * 0.6f, tipY - dir.dy * head, arrowPaint)
+                    canvas.drawLine(tipX, tipY, tipX - head * 0.6f, tipY - dir.dy * head, arrowPaint)
+                }
             }
         } 
         // 2. Одиночная стрелка (прямая или изогнутая)
@@ -588,42 +597,61 @@ class ColorPuzzleView @JvmOverloads constructor(
             val dir = directions.first()
             
             if (dir.name.startsWith("CORNER")) {
-                // ОТРИСОВКА УГЛА
-                val r = length * 0.7f
+                // ИДЕАЛЬНАЯ ОТРИСОВКА ИЗОГНУТОЙ СТРЕЛКИ
                 val isRight = dir == Direction.CORNER_TOP_RIGHT || dir == Direction.CORNER_BOTTOM_RIGHT
                 val isBottom = dir == Direction.CORNER_BOTTOM_LEFT || dir == Direction.CORNER_BOTTOM_RIGHT
 
-                val hStartX = if (isRight) cx - r else cx + r
-                val hEndX = if (isRight) cx + r else cx - r
+                val r = length * 0.8f
+                val tailX = if (isRight) cx - r else cx + r
+                val tailY = if (isBottom) cy - r else cy + r
                 
-                val vStartY = if (isBottom) cy - r else cy + r
-                val vEndY = if (isBottom) cy + r else cy - r
+                val tipX = if (isRight) cx + r else cx - r
+                val tipY = if (isBottom) cy + r else cy - r
 
-                // Рисуем линии уголка
-                canvas.drawLine(hStartX, cy, hEndX, cy, arrowPaint)
-                canvas.drawLine(hEndX, cy, hEndX, vEndY, arrowPaint)
+                val cornerX = if (isRight) cx + r else cx - r
+                val cornerY = if (isBottom) cy - r else cy + r
 
-                // Рисуем наконечник
-                val tipX = hEndX
-                val tipY = vEndY
+                // Рисуем дугу с закруглением
+                arrowPath.reset()
+                arrowPath.moveTo(tailX, tailY)
+                arrowPath.lineTo(cornerX, cornerY)
+                arrowPath.lineTo(tipX, tipY)
                 
-                val dx = if (isRight) 1f else -1f
-                val dy = if (isBottom) 1f else -1f
+                canvas.drawPath(arrowPath, arrowPaint)
 
-                canvas.drawLine(tipX, tipY, tipX - dx * head, tipY - dy * head + head * 0.5f, arrowPaint)
-                canvas.drawLine(tipX, tipY, tipX - dx * head, tipY - dy * head - head * 0.5f, arrowPaint)
+                // Рисуем наконечник (две линии под углом 90 градусов)
+                if (isRight) {
+                    canvas.drawLine(tipX, tipY, tipX - head, tipY + head * 0.7f, arrowPaint)
+                    canvas.drawLine(tipX, tipY, tipX - head, tipY - head * 0.7f, arrowPaint)
+                } else {
+                    canvas.drawLine(tipX, tipY, tipX + head, tipY + head * 0.7f, arrowPaint)
+                    canvas.drawLine(tipX, tipY, tipX + head, tipY - head * 0.7f, arrowPaint)
+                }
+
+                if (isBottom) {
+                    canvas.drawLine(tipX, tipY, tipX + head * 0.7f, tipY - head, arrowPaint)
+                    canvas.drawLine(tipX, tipY, tipX - head * 0.7f, tipY - head, arrowPaint)
+                } else {
+                    canvas.drawLine(tipX, tipY, tipX + head * 0.7f, tipY + head, arrowPaint)
+                    canvas.drawLine(tipX, tipY, tipX - head * 0.7f, tipY + head, arrowPaint)
+                }
                 
             } else {
-                // Обычная прямая
+                // Обычная прямая стрелка
                 val startX = cx - dir.dx * length
                 val startY = cy - dir.dy * length
                 val endX = cx + dir.dx * length
                 val endY = cy + dir.dy * length
 
                 canvas.drawLine(startX, startY, endX, endY, arrowPaint)
-                // Наконечник
-                canvas.drawLine(endX, endY, endX - dir.dx * head - dir.dy * head, endY - dir.dy * head + dir.dx * head, arrowPaint)
-                canvas.drawLine(endX, endY, endX - dir.dx * head + dir.dy * head, endY - dir.dy * head - dir.dx * head, arrowPaint)
+                
+                if (dir.dx != 0) {
+                    canvas.drawLine(endX, endY, endX - dir.dx * head, endY + head * 0.6f, arrowPaint)
+                    canvas.drawLine(endX, endY, endX - dir.dx * head, endY - head * 0.6f, arrowPaint)
+                } else {
+                    canvas.drawLine(endX, endY, endX + head * 0.6f, endY - dir.dy * head, arrowPaint)
+                    canvas.drawLine(endX, endY, endX - head * 0.6f, endY - dir.dy * head, arrowPaint)
+                }
             }
         }
 
