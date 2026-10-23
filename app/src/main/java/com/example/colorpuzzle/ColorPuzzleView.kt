@@ -27,7 +27,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     private enum class Direction {
-        UP, DOWN, LEFT, RIGHT
+        UP, DOWN, LEFT, RIGHT, VERTICAL, HORIZONTAL
     }
 
     private data class Cell(
@@ -261,32 +261,27 @@ class ColorPuzzleView @JvmOverloads constructor(
         gridX = x,
         gridY = y,
         direction = direction,
-        colorResId = colors[Random.nextInt(colors.size)],
-        scale = 1f,
-        alpha = 255
+        colorResId = colors[Random.nextInt(colors.size)]
     )
 
     private fun isPathBlocked(
         candidate: Cell,
         others: List<Cell>
     ): Boolean {
-        return others.any { other ->
-            when (candidate.direction) {
-                Direction.UP ->
-                    other.gridX == candidate.gridX &&
-                        other.gridY < candidate.gridY
-
-                Direction.DOWN ->
-                    other.gridX == candidate.gridX &&
-                        other.gridY > candidate.gridY
-
-                Direction.LEFT ->
-                    other.gridY == candidate.gridY &&
-                        other.gridX < candidate.gridX
-
-                Direction.RIGHT ->
-                    other.gridY == candidate.gridY &&
-                        other.gridX > candidate.gridX
+        return when (candidate.direction) {
+            Direction.UP -> others.any { it.gridX == candidate.gridX && it.gridY < candidate.gridY }
+            Direction.DOWN -> others.any { it.gridX == candidate.gridX && it.gridY > candidate.gridY }
+            Direction.LEFT -> others.any { it.gridY == candidate.gridY && it.gridX < candidate.gridX }
+            Direction.RIGHT -> others.any { it.gridY == candidate.gridY && it.gridX > candidate.gridX }
+            Direction.VERTICAL -> {
+                val upBlocked = others.any { it.gridX == candidate.gridX && it.gridY < candidate.gridY }
+                val downBlocked = others.any { it.gridX == candidate.gridX && it.gridY > candidate.gridY }
+                upBlocked && downBlocked
+            }
+            Direction.HORIZONTAL -> {
+                val leftBlocked = others.any { it.gridY == candidate.gridY && it.gridX < candidate.gridX }
+                val rightBlocked = others.any { it.gridY == candidate.gridY && it.gridX > candidate.gridX }
+                leftBlocked && rightBlocked
             }
         }
     }
@@ -410,8 +405,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         for ((x, y) in positions) {
             if (result.size >= targetCount) break
 
-            val directions =
-                Direction.values().toList().shuffled()
+            val directions = Direction.values().toList().shuffled()
 
             for (direction in directions) {
                 val candidate = createCell(id, x, y, direction)
@@ -514,6 +508,14 @@ class ColorPuzzleView @JvmOverloads constructor(
             Direction.RIGHT ->
                 other.gridY == block.gridY &&
                     other.gridX > block.gridX
+
+            Direction.VERTICAL ->
+                other.gridX == block.gridX &&
+                    (other.gridY < block.gridY || other.gridY > block.gridY)
+
+            Direction.HORIZONTAL ->
+                other.gridY == block.gridY &&
+                    (other.gridX < block.gridX || other.gridX > block.gridX)
         }
     }
 
@@ -575,7 +577,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         canvas.drawRoundRect(board, cellSize * 0.16f, cellSize * 0.16f, paint)
         paint.clearShadowLayer()
 
-        // 2. Сетка поля (чуть светлее для отличной видимости на темном фоне)
+        // 2. Сетка поля
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1.4f
         paint.color = Color.rgb(55, 71, 103)
@@ -664,45 +666,49 @@ class ColorPuzzleView @JvmOverloads constructor(
         direction: Direction,
         alpha: Int
     ) {
-        var dx = 0f
-        var dy = 0f
-
         when (direction) {
-            Direction.UP -> dy = -1f
-            Direction.DOWN -> dy = 1f
-            Direction.LEFT -> dx = -1f
-            Direction.RIGHT -> dx = 1f
+            Direction.UP -> drawSingleArrow(canvas, cx, cy, length, 0f, -1f, alpha)
+            Direction.DOWN -> drawSingleArrow(canvas, cx, cy, length, 0f, 1f, alpha)
+            Direction.LEFT -> drawSingleArrow(canvas, cx, cy, length, -1f, 0f, alpha)
+            Direction.RIGHT -> drawSingleArrow(canvas, cx, cy, length, 1f, 0f, alpha)
+            Direction.VERTICAL -> {
+                drawSingleArrow(canvas, cx, cy, length, 0f, -1f, alpha)
+                drawSingleArrow(canvas, cx, cy, length, 0f, 1f, alpha)
+            }
+            Direction.HORIZONTAL -> {
+                drawSingleArrow(canvas, cx, cy, length, -1f, 0f, alpha)
+                drawSingleArrow(canvas, cx, cy, length, 1f, 0f, alpha)
+            }
         }
+    }
 
-        val startX = cx - dx * length
-        val startY = cy - dy * length
-        val endX = cx + dx * length
-        val endY = cy + dy * length
-        val head = length * 0.48f
+    private fun drawSingleArrow(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        length: Float,
+        dx: Float,
+        dy: Float,
+        alpha: Int
+    ) {
+        val arrowLen = length * 0.75f
+        val startX = cx - dx * arrowLen
+        val startY = cy - dy * arrowLen
+        val endX = cx + dx * arrowLen
+        val endY = cy + dy * arrowLen
+        val head = arrowLen * 0.45f
 
         paint.shader = null
         paint.clearShadowLayer()
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = (length * 0.28f).coerceAtLeast(2.5f)
+        paint.strokeWidth = (length * 0.25f).coerceAtLeast(2.0f)
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
         paint.color = applyAlpha(arrowColor, alpha)
 
         canvas.drawLine(startX, startY, endX, endY, paint)
-
-        canvas.drawLine(
-            endX, endY,
-            endX - dx * head - dy * head,
-            endY - dy * head + dx * head,
-            paint
-        )
-
-        canvas.drawLine(
-            endX, endY,
-            endX - dx * head + dy * head,
-            endY - dy * head - dx * head,
-            paint
-        )
+        canvas.drawLine(endX, endY, endX - dx * head - dy * head, endY - dy * head + dx * head, paint)
+        canvas.drawLine(endX, endY, endX - dx * head + dy * head, endY - dy * head - dx * head, paint)
 
         paint.style = Paint.Style.FILL
         paint.strokeCap = Paint.Cap.BUTT
@@ -762,15 +768,33 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         animatingBlockId = block.id
 
+        // Определяем фактическое направление движения (особенно для VERTICAL и HORIZONTAL)
+        val others = blocks.filter { it.id != block.id }
+        val actualDir = when (block.direction) {
+            Direction.UP -> Direction.UP
+            Direction.DOWN -> Direction.DOWN
+            Direction.LEFT -> Direction.LEFT
+            Direction.RIGHT -> Direction.RIGHT
+            Direction.VERTICAL -> {
+                val upBlocked = others.any { it.gridX == block.gridX && it.gridY < block.gridY }
+                if (!upBlocked) Direction.UP else Direction.DOWN
+            }
+            Direction.HORIZONTAL -> {
+                val leftBlocked = others.any { it.gridY == block.gridY && it.gridX < block.gridX }
+                if (!leftBlocked) Direction.LEFT else Direction.RIGHT
+            }
+        }
+
         val distance = maxOf(width, height).toFloat()
         var targetX = block.currentX
         var targetY = block.currentY
 
-        when (block.direction) {
+        when (actualDir) {
             Direction.UP -> targetY -= distance
             Direction.DOWN -> targetY += distance
             Direction.LEFT -> targetX -= distance
             Direction.RIGHT -> targetX += distance
+            else -> {}
         }
 
         val startX = block.currentX
