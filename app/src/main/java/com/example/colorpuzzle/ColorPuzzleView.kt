@@ -80,7 +80,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Максимальная плотность с первого уровня.
+     * Высокая плотность с первого уровня.
      * Одна клетка остаётся свободной.
      */
     private fun calculateDensity(level: Int): Float {
@@ -129,7 +129,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Проверяем, есть ли другой блок на пути стрелки.
+     * Проверяем, находится ли другой блок на пути стрелки.
      */
     private fun isPathBlocked(
         candidate: Cell,
@@ -166,8 +166,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Проверка решаемости: на каждом шаге должен
-     * существовать блок, который можно удалить.
+     * Проверяем, можно ли удалить все блоки.
      */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
@@ -187,16 +186,14 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * УМНЫЙ ГЕНЕРАТОР
+     * СЛУЧАЙНЫЙ ГЕНЕРАТОР УРОВНЕЙ
      *
-     * 1. Строит последовательность змейкой.
-     * 2. Каждый следующий блок направлен к предыдущему.
-     * 3. Поэтому следующий блок закрыт предыдущим.
-     * 4. После удаления предыдущего следующий открывается.
+     * Создаёт случайные маршруты и ветвящиеся зависимости.
+     * Новый блок перекрывает текущий доступный ход и сам
+     * получает свободное направление.
      *
-     * Такая конструкция обеспечивает ровно один первый ход
-     * и последовательность, в которой можно удалить все блоки.
-     * Генератор не зависит от случайного перебора позиций.
+     * Это позволяет последовательно удалять блоки в обратном
+     * порядке построения. Каждая принятая раскладка проверяется.
      */
     private fun createHardLevel(
         requestedCount: Int
@@ -206,65 +203,185 @@ class ColorPuzzleView @JvmOverloads constructor(
             cols * rows - 1
         )
 
-        val positions = mutableListOf<Pair<Int, Int>>()
+        var best = mutableListOf<Cell>()
+
+        val attempts = if (targetCount >= 60) 80 else 140
+
+        repeat(attempts) {
+            val candidate = createRandomBranchingAttempt(targetCount)
+
+            if (candidate.size > best.size) {
+                best = candidate
+            }
+
+            if (
+                candidate.size == targetCount &&
+                countAvailableMoves(candidate) == 1 &&
+                isSolvable(candidate)
+            ) {
+                return candidate
+            }
+        }
+
+        if (
+            best.isNotEmpty() &&
+            countAvailableMoves(best) == 1 &&
+            isSolvable(best)
+        ) {
+            return best
+        }
+
+        // Запасной вариант на случай неудачи всех попыток.
+        val seeds = mutableListOf<Triple<Int, Int, Direction>>()
 
         for (y in 0 until rows) {
-            if (y % 2 == 0) {
-                for (x in 0 until cols) {
-                    positions.add(x to y)
-                }
-            } else {
-                for (x in cols - 1 downTo 0) {
-                    positions.add(x to y)
+            for (x in 0 until cols) {
+                for (direction in Direction.values()) {
+                    if (hasCellAhead(x, y, direction)) {
+                        seeds.add(Triple(x, y, direction))
+                    }
                 }
             }
         }
 
-        val selected = positions.take(targetCount)
-        val result = mutableListOf<Cell>()
+        val seed = seeds.random()
 
-        for (index in selected.indices) {
-            val (x, y) = selected[index]
-
-            val direction = if (index == 0) {
-                // Первый блок свободен: стрелка направлена наружу.
-                Direction.LEFT
-            } else {
-                val (previousX, previousY) = selected[index - 1]
-
-                when {
-                    // Идём слева направо — стрелка смотрит назад.
-                    y == previousY && x > previousX ->
-                        Direction.LEFT
-
-                    // Идём справа налево — стрелка смотрит назад.
-                    y == previousY && x < previousX ->
-                        Direction.RIGHT
-
-                    // Начало новой строки: предыдущий блок сверху.
-                    else -> Direction.UP
-                }
-            }
-
-            result.add(
-                createCell(
-                    id = index + 1,
-                    x = x,
-                    y = y,
-                    direction = direction
-                )
+        return mutableListOf(
+            createCell(
+                1,
+                seed.first,
+                seed.second,
+                seed.third
             )
+        )
+    }
+
+    /*
+     * Одна попытка построения случайного уровня.
+     */
+    private fun createRandomBranchingAttempt(
+        targetCount: Int
+    ): MutableList<Cell> {
+        val result = mutableListOf<Cell>()
+        val seeds = mutableListOf<Triple<Int, Int, Direction>>()
+
+        for (y in 0 until rows) {
+            for (x in 0 until cols) {
+                for (direction in Direction.values()) {
+                    if (hasCellAhead(x, y, direction)) {
+                        seeds.add(Triple(x, y, direction))
+                    }
+                }
+            }
         }
 
-        // Защита от случайного нарушения правил при будущих изменениях.
-        check(isSolvable(result)) {
-            "Генератор создал нерешаемый уровень"
-        }
-        check(countAvailableMoves(result) == 1) {
-            "В начале уровня должен быть ровно один доступный ход"
+        if (seeds.isEmpty()) return result
+
+        val seed = seeds.random()
+
+        result.add(
+            createCell(
+                1,
+                seed.first,
+                seed.second,
+                seed.third
+            )
+        )
+
+        while (result.size < targetCount) {
+            val available = result.filter { block ->
+                !isPathBlocked(
+                    block,
+                    result.filter { it.id != block.id }
+                )
+            }
+
+            // Продолжаем только при одном доступном ходе.
+            if (available.size != 1) break
+
+            val active = available.single()
+            val rayPositions = mutableListOf<Pair<Int, Int>>()
+
+            var x = active.gridX
+            var y = active.gridY
+
+            // Находим свободные клетки вдоль стрелки активного блока.
+            while (true) {
+                when (active.direction) {
+                    Direction.UP -> y--
+                    Direction.DOWN -> y++
+                    Direction.LEFT -> x--
+                    Direction.RIGHT -> x++
+                }
+
+                if (x !in 0 until cols || y !in 0 until rows) {
+                    break
+                }
+
+                if (result.none { it.gridX == x && it.gridY == y }) {
+                    rayPositions.add(x to y)
+                }
+            }
+
+            if (rayPositions.isEmpty()) break
+
+            var chosen: Cell? = null
+
+            // Перемешивание создаёт разные маршруты на каждом уровне.
+            for ((px, py) in rayPositions.shuffled()) {
+                for (direction in Direction.values().toList().shuffled()) {
+
+                    // До последнего блока желательно оставить
+                    // клетку впереди для продолжения маршрута.
+                    if (
+                        result.size + 1 < targetCount &&
+                        !hasCellAhead(px, py, direction)
+                    ) {
+                        continue
+                    }
+
+                    val proposed = createCell(
+                        id = (result.maxOfOrNull { it.id } ?: 0) + 1,
+                        x = px,
+                        y = py,
+                        direction = direction
+                    )
+
+                    // Новый блок не должен быть заблокирован
+                    // уже размещёнными блоками.
+                    if (!isPathBlocked(proposed, result)) {
+                        chosen = proposed
+                        break
+                    }
+                }
+
+                if (chosen != null) break
+            }
+
+            val next = chosen ?: break
+            result.add(next)
+
+            // Сохраняем только шаги с одним доступным ходом.
+            if (countAvailableMoves(result) != 1) {
+                result.removeAt(result.lastIndex)
+                break
+            }
         }
 
         return result
+    }
+
+    private fun hasCellAhead(
+        x: Int,
+        y: Int,
+        direction: Direction
+    ): Boolean {
+        return when (direction) {
+            Direction.UP -> y > 0
+            Direction.DOWN -> y < rows - 1
+            Direction.LEFT -> x > 0
+            Direction.RIGHT -> x < cols - 1
+        }
     }
 
     private fun updateBoardGeometry(w: Int, h: Int) {
@@ -407,7 +524,13 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
 
-        canvas.drawLine(startX, startY, endX, endY, paint)
+        canvas.drawLine(
+            startX,
+            startY,
+            endX,
+            endY,
+            paint
+        )
 
         when (block.direction) {
             Direction.UP -> {
