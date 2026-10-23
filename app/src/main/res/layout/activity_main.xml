@@ -1,32 +1,43 @@
-<?xml version="1.0" encoding="utf-8"?><LinearLayout
-xmlns:android="http://schemas.android.com/apk/res/android"
-android:layout_width="match_parent"
-android:layout_height="match_parent"
-android:orientation="vertical"
-android:gravity="center"
-android:background="#F5F5F5"
-android:padding="12dp">
 
-<TextView
-    android:id="@+id/tvLives"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:text="Жизни: ❤️❤️❤️"
-    android:textSize="20sp"
-    android:textStyle="bold"
-    android:layout_marginBottom="12dp" />
-
-<com.example.colorpuzzle.ColorPuzzleView
-    android:id="@+id/puzzleView"
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="0dp"
-    android:layout_weight="1" />
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="#F5F5F5"
+    android:padding="12dp">
 
-<Button
-    android:id="@+id/btnRestart"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:text="Заново"
-    android:layout_margin="12dp" />
+    <TextView
+        android:id="@+id/tvLevel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Уровень 1"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tvLives"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Жизни: ❤️❤️❤️"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="12dp" />
+
+    <com.example.colorpuzzle.ColorPuzzleView
+        android:id="@+id/puzzleView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/btnRestart"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Повторить уровень"
+        android:layout_margin="12dp" />
 
 </LinearLayout>
