@@ -7,6 +7,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.os.Build
 import android.util.AttributeSet
@@ -26,17 +27,22 @@ class ColorPuzzleView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    // Теперь направление — это набор флагов. 
-    // Блок можно убрать, если ХОТЯ БЫ ОДИН из путей свободен.
+    // Направления. Для изогнутых используем диагональные комбинации (X и Y).
     private enum class Direction(val dx: Int, val dy: Int) {
-        UP(0, -1), DOWN(0, 1), LEFT(-1, 0), RIGHT(1, 0)
+        UP(0, -1), DOWN(0, 1), LEFT(-1, 0), RIGHT(1, 0),
+        
+        // Изогнутые (куда указывает наконечник, и куда идет второй конец)
+        CORNER_TOP_LEFT(-1, -1),    // Угол: Влево + Вверх
+        CORNER_TOP_RIGHT(1, -1),    // Угол: Вправо + Вверх
+        CORNER_BOTTOM_LEFT(-1, 1),  // Угол: Влево + Вниз
+        CORNER_BOTTOM_RIGHT(1, 1);  // Угол: Вправо + Вниз
     }
 
     private data class Cell(
         val id: Int,
         val gridX: Int,
         val gridY: Int,
-        val directions: List<Direction>, // Поддержка нескольких направлений
+        val directions: List<Direction>, 
         val colorResId: Int,
         var currentX: Float = 0f,
         var currentY: Float = 0f,
@@ -65,8 +71,10 @@ class ColorPuzzleView @JvmOverloads constructor(
     private val blockPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
 
     private val blocks = mutableListOf<Cell>()
-    
     private var runningAnimator: ValueAnimator? = null
+
+    // Для отрисовки дуг (уголков)
+    private val arrowPath = Path()
 
     var onGameEventListener: OnGameEventListener? = null
 
@@ -163,7 +171,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 put("id", block.id)
                 put("x", block.gridX)
                 put("y", block.gridY)
-                // Сохраняем как строку, разделенную запятой: "LEFT,RIGHT"
                 put("directions", block.directions.joinToString(",") { it.name })
                 put("color", block.colorResId)
             })
@@ -194,10 +201,8 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val x = item.getInt("x")
                 val y = item.getInt("y")
                 
-                // Загружаем массив направлений
                 val dirString = item.getString("directions")
                 val directions = dirString.split(",").map { Direction.valueOf(it) }
-                
                 val color = item.getInt("color")
 
                 if (id < 1 || x !in 0 until savedCols || y !in 0 until savedRows) return false
@@ -252,18 +257,27 @@ class ColorPuzzleView @JvmOverloads constructor(
         alpha = 255
     )
 
-    // Проверяем, заблокирован ли блок хотя бы в одном из его направлений
-    private fun isPathBlocked(candidate: Cell, others: List<Cell>): Boolean {
-        // Блок ЗАБЛОКИРОВАН, только если ВСЕ его направления перекрыты
-        return candidate.directions.all { dir ->
-            others.any { other ->
-                when (dir) {
-                    Direction.UP -> other.gridX == candidate.gridX && other.gridY < candidate.gridY
-                    Direction.DOWN -> other.gridX == candidate.gridX && other.gridY > candidate.gridY
-                    Direction.LEFT -> other.gridY == candidate.gridY && other.gridX < candidate.gridX
-                    Direction.RIGHT -> other.gridY == candidate.gridY && other.gridX > candidate.gridX
-                }
+    // Проверяем, есть ли препятствие на конкретном луче
+    private fun isRayBlocked(candidateX: Int, candidateY: Int, dir: Direction, others: List<Cell>): Boolean {
+        return others.any { other ->
+            when (dir) {
+                Direction.UP, Direction.CORNER_TOP_LEFT, Direction.CORNER_TOP_RIGHT -> 
+                    other.gridX == candidateX && other.gridY < candidateY
+                Direction.DOWN, Direction.CORNER_BOTTOM_LEFT, Direction.CORNER_BOTTOM_RIGHT -> 
+                    other.gridX == candidateX && other.gridY > candidateY
+                Direction.LEFT, Direction.CORNER_TOP_LEFT, Direction.CORNER_BOTTOM_LEFT -> 
+                    other.gridY == candidateY && other.gridX < candidateX
+                Direction.RIGHT, Direction.CORNER_TOP_RIGHT, Direction.CORNER_BOTTOM_RIGHT -> 
+                    other.gridY == candidateY && other.gridX > candidateX
             }
+        }
+    }
+
+    // Проверяем, заблокирован ли блок
+    private fun isPathBlocked(candidate: Cell, others: List<Cell>): Boolean {
+        // Блок ЗАБЛОКИРОВАН, если ВСЕ его направления перекрыты
+        return candidate.directions.all { dir ->
+            isRayBlocked(candidate.gridX, candidate.gridY, dir, others)
         }
     }
 
@@ -330,10 +344,9 @@ class ColorPuzzleView @JvmOverloads constructor(
             return selected
         }
 
-        return createGuaranteedFallback(target, level)
+        return createGuaranteedFallback(target)
     }
 
-    // Добавлена поддержка "двойных" стрелок с ростом уровня
     private fun createRandomBranchingAttempt(targetCount: Int, level: Int): MutableList<Cell> {
         val result = mutableListOf<Cell>()
         val positions = (0 until rows).flatMap { y -> (0 until cols).map { x -> x to y } }.shuffled()
@@ -342,31 +355,50 @@ class ColorPuzzleView @JvmOverloads constructor(
         for ((x, y) in positions) {
             if (result.size >= targetCount) break
 
-            // С 6-го уровня появляются двойные стрелки. Шанс растет с уровнем.
+            // Вероятности появления разных типов стрелок в зависимости от уровня
             val doubleArrowChance = when {
                 level < 6 -> 0f
                 level < 15 -> 0.15f
                 level < 30 -> 0.30f
-                else -> 0.45f
+                else -> 0.40f
             }
             
-            val isDouble = Random.nextFloat() < doubleArrowChance
+            val cornerArrowChance = when {
+                level < 12 -> 0f
+                level < 20 -> 0.15f
+                level < 35 -> 0.30f
+                else -> 0.40f
+            }
 
+            val rand = Random.nextFloat()
             val possibleDirs = mutableListOf<List<Direction>>()
-            
-            if (isDouble) {
-                // 6 направлений: горизонтальные и вертикальные пары
+
+            if (rand < cornerArrowChance) {
+                // Изогнутые стрелки (углы)
+                possibleDirs.add(listOf(Direction.CORNER_TOP_LEFT))
+                possibleDirs.add(listOf(Direction.CORNER_TOP_RIGHT))
+                possibleDirs.add(listOf(Direction.CORNER_BOTTOM_LEFT))
+                possibleDirs.add(listOf(Direction.CORNER_BOTTOM_RIGHT))
+            } else if (rand < cornerArrowChance + doubleArrowChance) {
+                // Двойные прямые стрелки
                 possibleDirs.add(listOf(Direction.LEFT, Direction.RIGHT))
                 possibleDirs.add(listOf(Direction.UP, Direction.DOWN))
             } else {
-                // 4 обычных направления
-                Direction.values().forEach { possibleDirs.add(listOf(it)) }
+                // Обычные прямые
+                possibleDirs.add(listOf(Direction.UP))
+                possibleDirs.add(listOf(Direction.DOWN))
+                possibleDirs.add(listOf(Direction.LEFT))
+                possibleDirs.add(listOf(Direction.RIGHT))
             }
 
-            // Ищем направление, которое не будет заблокировано
+            // Ищем направление, которое не будет заблокировано (или блокируется логично)
             val availableDirections = possibleDirs.filter { dirs ->
                 val candidate = createCell(id, x, y, dirs)
-                !isPathBlocked(candidate, result)
+                // Для генерации мы хотим, чтобы блок можно было УБРАТЬ, 
+                // но он может быть заблокирован другими блоками.
+                // Поэтому просто добавляем, проверяя, что он не перекрывает сам себя.
+                // (Для усложнения можно ставить и заблокированные, но лучше начинать со свободных).
+                !isPathBlocked(candidate, result) || Random.nextFloat() < 0.3f 
             }.shuffled()
 
             if (availableDirections.isNotEmpty()) {
@@ -378,7 +410,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         return result
     }
 
-    private fun createGuaranteedFallback(targetCount: Int, level: Int): MutableList<Cell> {
+    private fun createGuaranteedFallback(targetCount: Int): MutableList<Cell> {
         val result = mutableListOf<Cell>()
         var id = 1
 
@@ -398,21 +430,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 }
             }
         }
-
-        if (result.size < targetCount) {
-            for (y in 0 until rows) {
-                for (x in 0 until cols) {
-                    if (result.size >= targetCount) return result
-                    if (result.any { it.gridX == x && it.gridY == y }) continue
-                    
-                    val candidate = createCell(id, x, y, listOf(Direction.UP))
-                    if (!isPathBlocked(candidate, result)) {
-                        result.add(candidate)
-                        id++
-                    }
-                }
-            }
-        }
         return result
     }
 
@@ -424,7 +441,9 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         for (block in source.sortedByDescending { it.id }) {
             val blockers = source.filter { other -> 
-                other.id > block.id && block.directions.any { dir -> blocksOnRay(block, other, dir) }
+                other.id > block.id && block.directions.any { dir -> 
+                    isRayBlocked(block.gridX, block.gridY, dir, listOf(other))
+                }
             }
             depthById[block.id] = if (blockers.isEmpty()) 1 else 1 + (blockers.maxOfOrNull { depthById[it.id] ?: 1 } ?: 0)
         }
@@ -432,15 +451,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         val depth = depthById.values.maxOrNull() ?: 0
 
         return DifficultyMetrics(initialMoves, depth, source.size)
-    }
-
-    private fun blocksOnRay(block: Cell, other: Cell, dir: Direction): Boolean {
-        return when (dir) {
-            Direction.UP -> other.gridX == block.gridX && other.gridY < block.gridY
-            Direction.DOWN -> other.gridX == block.gridX && other.gridY > block.gridY
-            Direction.LEFT -> other.gridY == block.gridY && other.gridX < block.gridX
-            Direction.RIGHT -> other.gridY == block.gridY && other.gridX > block.gridX
-        }
     }
 
     // =====================================================================
@@ -550,7 +560,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
     }
 
-    // Обновленный метод отрисовки для поддержки нескольких направлений
     private fun drawArrow(canvas: Canvas, cx: Float, cy: Float, length: Float, directions: List<Direction>, alpha: Int) {
         blockPaint.shader = null
         blockPaint.clearShadowLayer()
@@ -562,12 +571,11 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         val head = length * 0.48f
 
-        // Если стрелка двойная (горизонтальная или вертикальная)
         if (directions.size == 2) {
+            // Двойная прямая стрелка
             val dir1 = directions[0]
             val dir2 = directions[1]
             
-            // Рисуем одну длинную линию насквозь
             val startX = cx + dir1.dx * length
             val startY = cy + dir1.dy * length
             val endX = cx + dir2.dx * length
@@ -575,25 +583,62 @@ class ColorPuzzleView @JvmOverloads constructor(
             
             canvas.drawLine(startX, startY, endX, endY, blockPaint)
             
-            // Рисуем наконечники с двух сторон
             for (dir in directions) {
                 val tipX = cx + dir.dx * length
                 val tipY = cy + dir.dy * length
-                
                 canvas.drawLine(tipX, tipY, tipX - dir.dx * head - dir.dy * head, tipY - dir.dy * head + dir.dx * head, blockPaint)
                 canvas.drawLine(tipX, tipY, tipX - dir.dx * head + dir.dy * head, tipY - dir.dy * head - dir.dx * head, blockPaint)
             }
-        } else {
-            // Обычная одиночная стрелка
+        } else if (directions.size == 1) {
             val dir = directions.first()
-            val startX = cx - dir.dx * length
-            val startY = cy - dir.dy * length
-            val endX = cx + dir.dx * length
-            val endY = cy + dir.dy * length
+            
+            // Проверяем, это изогнутая или прямая
+            if (dir.name.startsWith("CORNER")) {
+                // Рисуем дугу (уголок)
+                val r = length * 0.8f
+                // Определяем, куда смотрит угол (в какую сторону открыт)
+                val isRight = dir == Direction.CORNER_TOP_RIGHT || dir == Direction.CORNER_BOTTOM_RIGHT
+                val isBottom = dir == Direction.CORNER_BOTTOM_LEFT || dir == Direction.CORNER_BOTTOM_RIGHT
 
-            canvas.drawLine(startX, startY, endX, endY, blockPaint)
-            canvas.drawLine(endX, endY, endX - dir.dx * head - dir.dy * head, endY - dir.dy * head + dir.dx * head, blockPaint)
-            canvas.drawLine(endX, endY, endX - dir.dx * head + dir.dy * head, endY - dir.dy * head - dir.dx * head, blockPaint)
+                // Начальная точка (смещение от центра)
+                val startX = if (isRight) cx - r else cx + r
+                val startY = if (isBottom) cy - r else cy + r
+
+                // Конечная точка (где наконечник)
+                val endX = if (isRight) cx + r else cx - r
+                val endY = if (isBottom) cy + r else cy - r
+
+                // Угловая точка для дуги
+                val cornerX = if (isRight) cx + r else cx - r
+                val cornerY = if (isBottom) cy - r else cy + r
+
+                arrowPath.reset()
+                arrowPath.moveTo(startX, startY)
+                arrowPath.lineTo(cornerX, cornerY)
+                arrowPath.lineTo(endX, endY)
+                
+                // Скругляем угол
+                blockPaint.pathEffect = null
+                canvas.drawPath(arrowPath, blockPaint)
+
+                // Рисуем наконечник на конце
+                val dirX = if (isRight) 1 else -1
+                val dirY = if (isBottom) 1 else -1
+                
+                canvas.drawLine(endX, endY, endX - dirX * head, endY, blockPaint)
+                canvas.drawLine(endX, endY, endX, endY - dirY * head, blockPaint)
+                
+            } else {
+                // Обычная прямая
+                val startX = cx - dir.dx * length
+                val startY = cy - dir.dy * length
+                val endX = cx + dir.dx * length
+                val endY = cy + dir.dy * length
+
+                canvas.drawLine(startX, startY, endX, endY, blockPaint)
+                canvas.drawLine(endX, endY, endX - dir.dx * head - dir.dy * head, endY - dir.dy * head + dir.dx * head, blockPaint)
+                canvas.drawLine(endX, endY, endX - dir.dx * head + dir.dy * head, endY - dir.dy * head - dir.dx * head, blockPaint)
+            }
         }
 
         blockPaint.style = Paint.Style.FILL
@@ -633,11 +678,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         return true
     }
 
-    // Блок улетает в том направлении, в котором у него свободен путь
     private fun evaluateMove(block: Cell) {
         val freeDirs = block.directions.filter { dir ->
-            val temp = createCell(block.id, block.gridX, block.gridY, listOf(dir))
-            !isPathBlocked(temp, blocks.filter { it.id != block.id })
+            !isRayBlocked(block.gridX, block.gridY, dir, blocks.filter { it.id != block.id })
         }
 
         if (freeDirs.isEmpty()) {
@@ -665,8 +708,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         var targetY = block.currentY
 
         when (flightDir) {
-            Direction.UP -> targetY -= distance
-            Direction.DOWN -> targetY += distance
+            Direction.UP, Direction.CORNER_TOP_LEFT, Direction.CORNER_TOP_RIGHT -> targetY -= distance
+            Direction.DOWN, Direction.CORNER_BOTTOM_LEFT, Direction.CORNER_BOTTOM_RIGHT -> targetY += distance
             Direction.LEFT -> targetX -= distance
             Direction.RIGHT -> targetX += distance
         }
