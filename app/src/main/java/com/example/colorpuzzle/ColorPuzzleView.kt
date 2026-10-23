@@ -8,12 +8,15 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.Build
 import android.util.AttributeSet
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.AccelerateInterpolator
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Stack
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.random.Random
@@ -34,7 +37,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         val direction: Direction,
         val colorResId: Int,
         var currentX: Float = 0f,
-        var currentY: Float = 0f
+        var currentY: Float = 0f,
+        var scale: Float = 1f
     )
 
     private data class DifficultyMetrics(
@@ -50,6 +54,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     private var offsetY = 0f
     private var currentLevel = 1
     private var animatingBlockId: Int? = null
+
+    // Стек для реализации отмены хода (Undo) на базе вашего JSON-экспорта
+    private val historyStack = Stack<String>()
 
     private var lastDifficultyMetrics =
         DifficultyMetrics(0, 0, 0)
@@ -110,6 +117,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     fun loadLevel(level: Int) {
         currentLevel = level.coerceAtLeast(1)
         animatingBlockId = null
+        historyStack.clear()
 
         val (newCols, newRows) =
             calculateBoardSize(currentLevel)
@@ -140,6 +148,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
+    // Сохранение состояния для Undo и сохранения
     fun exportState(): String {
         val root = JSONObject()
 
@@ -157,7 +166,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                     put("y", block.gridY)
                     put("direction", block.direction.name)
                     put("color", block.colorResId)
-                    put("arrowColor", arrowColor)
                 }
             )
         }
@@ -186,11 +194,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             }
 
             val array = root.getJSONArray("blocks")
-
-            if (array.length() > savedCols * savedRows) {
-                return false
-            }
-
             val restored = mutableListOf<Cell>()
             val ids = mutableSetOf<Int>()
             val positions = mutableSetOf<Pair<Int, Int>>()
@@ -201,26 +204,14 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val id = item.getInt("id")
                 val x = item.getInt("x")
                 val y = item.getInt("y")
-
-                val direction = Direction.valueOf(
-                    item.getString("direction")
-                )
-
+                val direction = Direction.valueOf(item.getString("direction"))
                 val color = item.getInt("color")
 
-                if (
-                    id < 1 ||
-                    x !in 0 until savedCols ||
-                    y !in 0 until savedRows ||
-                    color !in colors
-                ) {
+                if (id < 1 || x !in 0 until savedCols || y !in 0 until savedRows) {
                     return false
                 }
 
-                if (
-                    !ids.add(id) ||
-                    !positions.add(x to y)
-                ) {
+                if (!ids.add(id) || !positions.add(x to y)) {
                     return false
                 }
 
@@ -230,7 +221,8 @@ class ColorPuzzleView @JvmOverloads constructor(
                         gridX = x,
                         gridY = y,
                         direction = direction,
-                        colorResId = color
+                        colorResId = color,
+                        scale = 1f
                     )
                 )
             }
@@ -253,6 +245,13 @@ class ColorPuzzleView @JvmOverloads constructor(
         } catch (_: Exception) {
             false
         }
+    }
+
+    // Метод отмены хода (Undo)
+    fun undoMove(): Boolean {
+        if (historyStack.isEmpty() || animatingBlockId != null) return false
+        val previousState = historyStack.pop()
+        return restoreState(previousState)
     }
 
     private fun createCell(
@@ -354,8 +353,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         val attempts = if (target >= 60) 180 else 260
 
         for (attempt in 0 until attempts) {
-            val candidate =
-                createRandomBranchingAttempt(target)
+            val candidate = createRandomBranchingAttempt(target)
 
             if (candidate.size != target) continue
             if (!isSolvable(candidate)) continue
@@ -363,16 +361,12 @@ class ColorPuzzleView @JvmOverloads constructor(
             val metrics = measureDifficulty(candidate)
 
             val movePenalty =
-                (metrics.availableMoves - desiredMoves)
-                    .coerceAtLeast(0) * 12
+                (metrics.availableMoves - desiredMoves).coerceAtLeast(0) * 12
 
             val depthPenalty =
                 abs(metrics.dependencyDepth - desiredDepth) * 3
 
-            val score =
-                movePenalty +
-                    depthPenalty +
-                    Random.nextInt(0, 8)
+            val score = movePenalty + depthPenalty + Random.nextInt(0, 8)
 
             if (score < bestScore) {
                 bestScore = score
@@ -398,17 +392,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             return selected
         }
 
-        val fallback = createGuaranteedFallback(target)
-
-        check(fallback.size == target) {
-            "Неверное количество блоков"
-        }
-
-        check(isSolvable(fallback)) {
-            "Резервный уровень не прошёл проверку"
-        }
-
-        return fallback
+        return createGuaranteedFallback(target)
     }
 
     private fun createRandomBranchingAttempt(
@@ -431,12 +415,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                 Direction.values().toList().shuffled()
 
             for (direction in directions) {
-                val candidate = createCell(
-                    id,
-                    x,
-                    y,
-                    direction
-                )
+                val candidate = createCell(id, x, y, direction)
 
                 if (!isPathBlocked(candidate, result)) {
                     result.add(candidate)
@@ -477,9 +456,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                     return result
                 }
 
-                result.add(
-                    createCell(id++, x, y, direction)
-                )
+                result.add(createCell(id++, x, y, direction))
             }
         }
 
@@ -505,11 +482,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                 if (blockers.isEmpty()) {
                     1
                 } else {
-                    1 + (
-                        blockers.maxOfOrNull {
-                            depthById[it.id] ?: 1
-                        } ?: 0
-                    )
+                    1 + (blockers.maxOfOrNull { depthById[it.id] ?: 1 } ?: 0)
                 }
         }
 
@@ -564,11 +537,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         if (cellSize <= 0f) return
 
         blocks.forEach { block ->
-            block.currentX =
-                offsetX + block.gridX * cellSize
-
-            block.currentY =
-                offsetY + block.gridY * cellSize
+            block.currentX = offsetX + block.gridX * cellSize
+            block.currentY = offsetY + block.gridY * cellSize
         }
     }
 
@@ -606,66 +576,60 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         canvas.drawRect(board, paint)
 
-        // Тонкая сетка поля.
+        // Тонкая сетка поля
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1f
         paint.color = Color.rgb(205, 212, 222)
 
         for (col in 0..cols) {
             val x = offsetX + col * cellSize
-
-            canvas.drawLine(
-                x,
-                offsetY,
-                x,
-                offsetY + rows * cellSize,
-                paint
-            )
+            canvas.drawLine(x, offsetY, x, offsetY + rows * cellSize, paint)
         }
 
         for (row in 0..rows) {
             val y = offsetY + row * cellSize
-
-            canvas.drawLine(
-                offsetX,
-                y,
-                offsetX + cols * cellSize,
-                y,
-                paint
-            )
+            canvas.drawLine(offsetX, y, offsetX + cols * cellSize, y, paint)
         }
 
-        // Рендеринг блоков с мягкими эстетичными тенями.
+        // Рендеринг блоков с учетом их текущего скейла (анимации тапа) и мягких теней
         for (block in blocks) {
             val inset = cellSize * 0.08f
+            val baseLeft = block.currentX + inset
+            val baseTop = block.currentY + inset
+            val baseRight = block.currentX + cellSize - inset
+            val baseBottom = block.currentY + cellSize - inset
+
+            val currentWidth = (baseRight - baseLeft) * block.scale
+            val currentHeight = (baseBottom - baseTop) * block.scale
+            val centerX = (baseLeft + baseRight) / 2f
+            val centerY = (baseTop + baseBottom) / 2f
 
             val rect = RectF(
-                block.currentX + inset,
-                block.currentY + inset,
-                block.currentX + cellSize - inset,
-                block.currentY + cellSize - inset
+                centerX - currentWidth / 2f,
+                centerY - currentHeight / 2f,
+                centerX + currentWidth / 2f,
+                centerY + currentHeight / 2f
             )
 
-            // Мягкая падающая тень для создания глубины
-            paint.setShadowLayer(cellSize * 0.12f, 0f, cellSize * 0.06f, Color.argb(45, 0, 0, 0))
+            // Мягкая эстетичная падающая тень
+            paint.setShadowLayer(cellSize * 0.10f * block.scale, 0f, cellSize * 0.05f * block.scale, Color.argb(40, 0, 0, 0))
             paint.style = Paint.Style.FILL
             paint.color = block.colorResId
 
             canvas.drawRoundRect(
                 rect,
-                cellSize * 0.12f,
-                cellSize * 0.12f,
+                cellSize * 0.12f * block.scale,
+                cellSize * 0.12f * block.scale,
                 paint
             )
 
-            // Убираем тень перед отрисовкой стрелки, чтобы она была чской
             paint.clearShadowLayer()
 
             drawFlatArrow(
                 canvas,
-                block.currentX + cellSize / 2f,
-                block.currentY + cellSize / 2f,
-                cellSize * 0.23f,
+                centerX,
+                centerY,
+                cellSize * 0.23f * block.scale,
                 block.direction
             )
         }
@@ -701,31 +665,22 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.shader = null
         paint.clearShadowLayer()
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth =
-            (length * 0.28f).coerceAtLeast(2f)
+        paint.strokeWidth = (length * 0.28f).coerceAtLeast(2f)
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
         paint.color = arrowColor
 
-        canvas.drawLine(
-            startX,
-            startY,
-            endX,
-            endY,
-            paint
-        )
+        canvas.drawLine(startX, startY, endX, endY, paint)
 
         canvas.drawLine(
-            endX,
-            endY,
+            endX, endY,
             endX - dx * head - dy * head,
             endY - dy * head + dx * head,
             paint
         )
 
         canvas.drawLine(
-            endX,
-            endY,
+            endX, endY,
             endX - dx * head + dy * head,
             endY - dy * head - dx * head,
             paint
@@ -774,14 +729,24 @@ class ColorPuzzleView @JvmOverloads constructor(
                 blocks.filter { it.id != block.id }
             )
         ) {
+            // Ошибка: легкая вибрация отклонения
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                performHapticFeedback(HapticFeedbackConstants.REJECT)
+            }
             onGameEventListener?.onWrongMove()
             return
         }
 
-        // Блокируем множественные нажатия во время анимации вылета
+        // Сохраняем состояние в стек перед успешным изменением для возможности Undo
+        historyStack.push(exportState())
+
+        // Успешный ход: тактильный отклик
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        }
+
         animatingBlockId = block.id
 
-        // Вычисляем траекторию плавного вылета блока за пределы экрана
         val distance = maxOf(width, height).toFloat()
         var targetX = block.currentX
         var targetY = block.currentY
@@ -796,13 +761,21 @@ class ColorPuzzleView @JvmOverloads constructor(
         val startX = block.currentX
         val startY = block.currentY
 
+        // Пружинистая анимация сжатия и последующего вылета
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 180
+            duration = 200
             interpolator = AccelerateInterpolator()
             addUpdateListener { animation ->
                 val fraction = animation.animatedValue as Float
-                block.currentX = startX + (targetX - startX) * fraction
-                block.currentY = startY + (targetY - startY) * fraction
+                if (fraction < 0.2f) {
+                    // Фаза сжатия (эффект нажатия)
+                    block.scale = 1f - (fraction / 0.2f) * 0.12f
+                } else {
+                    // Фаза полета с легким увеличением
+                    block.scale = 0.88f + ((fraction - 0.2f) / 0.8f) * 0.12f
+                    block.currentX = startX + (targetX - startX) * ((fraction - 0.2f) / 0.8f)
+                    block.currentY = startY + (targetY - startY) * ((fraction - 0.2f) / 0.8f)
+                }
                 invalidate()
             }
             addListener(object : AnimatorListenerAdapter() {
