@@ -49,31 +49,28 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Размер поля меняется каждые 5 уровней.
+     * Каждые 5 уровней изменяется размер поля.
      *
      * 1–5:     4x4
      * 6–10:    4x5
      * 11–15:   4x6
-     * 16–20:   4x7
-     * 21–25:   4x8
-     * 26–30:   4x9
+     * ...
      * 31–35:   4x10
      * 36–40:   5x5
-     * 41–45:   5x6
      * ...
-     * 136–140: 10x10
-     * 141+:    10x10 с ростом сложности
+     * 61–65:   5x10
+     * ...
+     * 141–145: 10x10
+     * Далее:   10x10, сложность продолжает расти.
      */
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
 
         for (first in 4..10) {
-            val startSecond = first
-            val stagesInRow = 11 - startSecond
+            val stagesInRow = 11 - first
 
             if (stage < stagesInRow) {
-                val second = startSecond + stage
-                return first to second
+                return first to (first + stage)
             }
 
             stage -= stagesInRow
@@ -91,15 +88,14 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         val totalCells = cols * rows
 
-        // Постепенно увеличиваем количество блоков.
-        // Всегда оставляем хотя бы одну пустую клетку.
+        // Увеличиваем количество блоков с ростом уровня.
         val requestedCount = minOf(
             totalCells - 1,
             3 + (safeLevel - 1) / 2
         )
 
         blocks.clear()
-        blocks.addAll(createSolvableBlocks(requestedCount))
+        blocks.addAll(createHardLevel(requestedCount))
 
         updateBoardGeometry(width, height)
         positionBlocks()
@@ -126,7 +122,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Проверяет, находится ли другой блок на пути стрелки.
+     * Проверяет, перекрывает ли другой блок направление стрелки.
      */
     private fun isPathBlocked(
         candidate: Cell,
@@ -154,80 +150,19 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Генерирует поле, которое можно пройти.
-     *
-     * Каждый добавляемый блок выбирает направление,
-     * свободное от уже размещённых блоков.
-     *
-     * Поэтому блоки можно удалять в обратном порядке
-     * их добавления. Если не удаётся разместить нужное
-     * количество блоков, число блоков уменьшается.
+     * Количество стрелок, которые можно убрать прямо сейчас.
      */
-    private fun createSolvableBlocks(
-        requestedCount: Int
-    ): MutableList<Cell> {
-
-        var targetCount = requestedCount.coerceAtLeast(0)
-
-        while (targetCount > 0) {
-            repeat(100) {
-                val result = mutableListOf<Cell>()
-
-                val positions = (0 until rows)
-                    .flatMap { y ->
-                        (0 until cols).map { x -> x to y }
-                    }
-                    .shuffled()
-
-                for ((x, y) in positions) {
-                    if (result.size >= targetCount) {
-                        break
-                    }
-
-                    val availableDirections = Direction.values()
-                        .filter { direction ->
-                            val candidate = createCell(
-                                id = result.size + 1,
-                                x = x,
-                                y = y,
-                                direction = direction
-                            )
-
-                            !isPathBlocked(candidate, result)
-                        }
-
-                    if (availableDirections.isEmpty()) {
-                        continue
-                    }
-
-                    val direction = availableDirections.random()
-
-                    result.add(
-                        createCell(
-                            id = result.size + 1,
-                            x = x,
-                            y = y,
-                            direction = direction
-                        )
-                    )
-                }
-
-                if (result.size == targetCount) {
-                    // Дополнительная проверка проходимости.
-                    if (isSolvable(result)) {
-                        return result
-                    }
-                }
-            }
-
-            targetCount--
+    private fun countAvailableMoves(source: List<Cell>): Int {
+        return source.count { block ->
+            !isPathBlocked(
+                block,
+                source.filter { it.id != block.id }
+            )
         }
-
-        return mutableListOf()
     }
 
     /**
-     * Проверяет, можно ли удалить все блоки.
+     * Проверяет, можно ли убрать все блоки последовательно.
      */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
@@ -244,6 +179,87 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
 
         return true
+    }
+
+    /**
+     * Генерирует сложный уровень.
+     *
+     * Принимаем только поле, в котором в начале доступны
+     * 1 или 2 стрелки и существует решение для всех блоков.
+     *
+     * Новые блоки размещаются так, чтобы их направление
+     * было свободно от уже размещённых блоков. Благодаря
+     * этому блоки можно убрать в обратном порядке создания.
+     */
+    private fun createHardLevel(
+        requestedCount: Int
+    ): MutableList<Cell> {
+
+        var targetCount = requestedCount.coerceAtLeast(1)
+
+        while (targetCount > 0) {
+            repeat(250) {
+                val result = mutableListOf<Cell>()
+
+                val positions = (0 until rows)
+                    .flatMap { y ->
+                        (0 until cols).map { x -> x to y }
+                    }
+                    .shuffled()
+
+                for ((x, y) in positions) {
+                    if (result.size >= targetCount) break
+
+                    val directions = Direction.values().toList()
+                        .shuffled()
+
+                    val direction = directions.firstOrNull { dir ->
+                        val candidate = createCell(
+                            id = result.size + 1,
+                            x = x,
+                            y = y,
+                            direction = dir
+                        )
+
+                        !isPathBlocked(candidate, result)
+                    } ?: continue
+
+                    result.add(
+                        createCell(
+                            id = result.size + 1,
+                            x = x,
+                            y = y,
+                            direction = direction
+                        )
+                    )
+                }
+
+                if (result.size != targetCount) return@repeat
+
+                val availableAtStart = countAvailableMoves(result)
+
+                if (
+                    availableAtStart in 1..2 &&
+                    isSolvable(result)
+                ) {
+                    return result
+                }
+            }
+
+            // Если слишком плотный вариант не удалось создать,
+            // пробуем поле с меньшим числом блоков.
+            targetCount--
+        }
+
+        // Безопасный запасной вариант: хотя бы один блок.
+        return mutableListOf(
+            createCell(
+                id = 1,
+                x = cols / 2,
+                y = rows / 2,
+                direction = Direction.UP
+            )
+        )
     }
 
     private fun updateBoardGeometry(w: Int, h: Int) {
@@ -265,11 +281,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         if (cellSize <= 0f) return
 
         blocks.forEach { block ->
-            block.currentX =
-                offsetX + block.gridX * cellSize
-
-            block.currentY =
-                offsetY + block.gridY * cellSize
+            block.currentX = offsetX + block.gridX * cellSize
+            block.currentY = offsetY + block.gridY * cellSize
         }
     }
 
@@ -293,7 +306,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         if (cellSize <= 0f) return
 
-        // Рисуем сетку.
+        // Сетка.
         paint.clearShadowLayer()
         paint.style = Paint.Style.STROKE
         paint.color = Color.rgb(218, 222, 228)
@@ -323,7 +336,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         }
 
-        // Рисуем блоки без теней.
+        // Цветные блоки без теней.
         for (block in blocks) {
             paint.clearShadowLayer()
             paint.style = Paint.Style.FILL
@@ -349,10 +362,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    private fun drawArrow(
-        canvas: Canvas,
-        block: Cell
-    ) {
+    private fun drawArrow(canvas: Canvas, block: Cell) {
         val cx = block.currentX + cellSize / 2f
         val cy = block.currentY + cellSize / 2f
         val len = cellSize * 0.23f
@@ -400,16 +410,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
 
-        // Основная линия стрелки.
-        canvas.drawLine(
-            startX,
-            startY,
-            endX,
-            endY,
-            paint
-        )
+        canvas.drawLine(startX, startY, endX, endY, paint)
 
-        // Наконечник стрелки.
         when (block.direction) {
             Direction.UP -> {
                 canvas.drawLine(
@@ -470,9 +472,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                return true
-            }
+            MotionEvent.ACTION_DOWN -> return true
 
             MotionEvent.ACTION_UP -> {
                 if (cellSize <= 0f) return true
@@ -502,12 +502,12 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun evaluateMove(block: Cell) {
-        val isBlocked = isPathBlocked(
+        val blocked = isPathBlocked(
             block,
             blocks.filter { it.id != block.id }
         )
 
-        if (isBlocked) {
+        if (blocked) {
             onGameEventListener?.onWrongMove()
             return
         }
