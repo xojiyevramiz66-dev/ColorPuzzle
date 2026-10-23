@@ -40,6 +40,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     fun loadLevel(level: Int) {
         blocks.clear()
 
+        val count = minOf(12, 3 + (level - 1) / 2)
         val colors = intArrayOf(
             Color.rgb(255, 82, 82),
             Color.rgb(68, 138, 255),
@@ -51,44 +52,33 @@ class ColorPuzzleView @JvmOverloads constructor(
             Color.rgb(92, 107, 192)
         )
 
-        // Создаем гарантированно проходимые уровни или процедурную генерацию без тупиков
-        when (level) {
-            8 -> {
-                // Исправленный Уровень 8: блоки не блокируют друг друга в тупике, есть четкая последовательность
-                blocks.add(Cell(1, 0, 0, Direction.RIGHT, colors[0])) // Слева вверху -> направо в пустую клетку (1,0)
-                blocks.add(Cell(2, 2, 0, Direction.LEFT, colors[1]))  // Справа вверху <- налево
-                blocks.add(Cell(3, 1, 2, Direction.DOWN, colors[2]))  // В центре вниз
-                blocks.add(Cell(4, 2, 3, Direction.UP, colors[3]))    // Снизу вверх
-            }
-            else -> {
-                // Для остальных уровней — безопасная генерация, где блоки не смотрят друг на друга вплотную
-                val count = minOf(12, 3 + (level - 1) / 2)
-                val availableCells = (0 until rows).flatMap { y -> (0 until cols).map { x -> x to y } }.toMutableList()
-                availableCells.shuffle()
+        // Гарантированная генерация без тупиков:
+        // Создаем список всех возможных ячеек
+        val availableCells = (0 until rows).flatMap { y -> (0 until cols).map { x -> x to y } }.toMutableList()
+        availableCells.shuffle()
 
-                for (i in 0 until count) {
-                    if (availableCells.isEmpty()) break
-                    val (x, y) = availableCells.removeAt(0)
-                    
-                    // Выбираем направление к ближайшему свободному краю, чтобы блок гарантированно мог улететь
-                    val dir = when {
-                        x == 0 -> Direction.RIGHT
-                        x == cols - 1 -> Direction.LEFT
-                        y == 0 -> Direction.DOWN
-                        else -> Direction.values().random()
-                    }
+        for (i in 0 until count) {
+            if (availableCells.isEmpty()) break
+            val (x, y) = availableCells.removeAt(0)
 
-                    blocks.add(
-                        Cell(
-                            id = i + 1,
-                            gridX = x,
-                            gridY = y,
-                            direction = dir,
-                            colorResId = colors[Random.nextInt(colors.size)]
-                        )
-                    )
-                }
+            // Подбираем направление наружу к краю, чтобы блок гарантированно мог улететь
+            val dir = when {
+                x == 0 -> Direction.LEFT
+                x == cols - 1 -> Direction.RIGHT
+                y == 0 -> Direction.UP
+                y == rows - 1 -> Direction.DOWN
+                else -> Direction.values().random()
             }
+
+            blocks.add(
+                Cell(
+                    id = i + 1,
+                    gridX = x,
+                    gridY = y,
+                    direction = dir,
+                    colorResId = colors[Random.nextInt(colors.size)]
+                )
+            )
         }
 
         positionBlocks()
