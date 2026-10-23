@@ -1,3 +1,5 @@
+ColorPuzzleView.kt
+
 package com.example.colorpuzzle
 
 import android.content.Context
@@ -48,9 +50,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    /**
-     * Каждые 5 уровней изменяется размер поля.
-     *
+    /*
+     * Размеры поля:
      * 1–5:     4x4
      * 6–10:    4x5
      * 11–15:   4x6
@@ -58,10 +59,8 @@ class ColorPuzzleView @JvmOverloads constructor(
      * 31–35:   4x10
      * 36–40:   5x5
      * ...
-     * 61–65:   5x10
-     * ...
-     * 141–145: 10x10
-     * Далее:   10x10, сложность продолжает расти.
+     * 136–140: 10x10
+     * После 140-го уровня поле остаётся 10x10.
      */
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
@@ -79,6 +78,27 @@ class ColorPuzzleView @JvmOverloads constructor(
         return 10 to 10
     }
 
+    /*
+     * Плотность с первого уровня:
+     * 1–10:    70%
+     * 11–30:   80%
+     * 31–60:   85%
+     * 61–100:  90%
+     * 101+:    95%
+     *
+     * Это целевая плотность. Генератор может уменьшить
+     * количество блоков, если не найдёт подходящую расстановку.
+     */
+    private fun calculateDensity(level: Int): Float {
+        return when {
+            level <= 10 -> 0.70f
+            level <= 30 -> 0.80f
+            level <= 60 -> 0.85f
+            level <= 100 -> 0.90f
+            else -> 0.95f
+        }
+    }
+
     fun loadLevel(level: Int) {
         val safeLevel = level.coerceAtLeast(1)
 
@@ -87,12 +107,12 @@ class ColorPuzzleView @JvmOverloads constructor(
         rows = newRows
 
         val totalCells = cols * rows
+        val density = calculateDensity(safeLevel)
 
-        // Увеличиваем количество блоков с ростом уровня.
         val requestedCount = minOf(
             totalCells - 1,
-            3 + (safeLevel - 1) / 2
-        )
+            (totalCells * density).toInt()
+        ).coerceAtLeast(1)
 
         blocks.clear()
         blocks.addAll(createHardLevel(requestedCount))
@@ -121,8 +141,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         )
     }
 
-    /**
-     * Проверяет, перекрывает ли другой блок направление стрелки.
+    /*
+     * Проверка препятствий на пути стрелки.
+     * Стрелка может выйти только тогда, когда её путь
+     * до соответствующего края полностью свободен.
      */
     private fun isPathBlocked(
         candidate: Cell,
@@ -149,9 +171,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * Количество стрелок, которые можно убрать прямо сейчас.
-     */
     private fun countAvailableMoves(source: List<Cell>): Int {
         return source.count { block ->
             !isPathBlocked(
@@ -161,8 +180,11 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * Проверяет, можно ли убрать все блоки последовательно.
+    /*
+     * Проверяет последовательность удаления.
+     * После удаления свободной стрелки путь другим стрелкам
+     * может только открыться, поэтому проверяем, что на каждом
+     * шаге существует хотя бы один доступный ход.
      */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
@@ -181,24 +203,29 @@ class ColorPuzzleView @JvmOverloads constructor(
         return true
     }
 
-    /**
-     * Генерирует сложный уровень.
+    /*
+     * Генератор высокой сложности.
      *
-     * Принимаем только поле, в котором в начале доступны
-     * 1 или 2 стрелки и существует решение для всех блоков.
+     * Сначала пытается создать поле с заданной плотностью.
+     * Затем старается оставить в начале только 1–2 доступных
+     * хода. Если расстановка не подходит, выполняет новую попытку.
+     * При неудаче уменьшает количество блоков.
      *
-     * Новые блоки размещаются так, чтобы их направление
-     * было свободно от уже размещённых блоков. Благодаря
-     * этому блоки можно убрать в обратном порядке создания.
+     * Каждый добавленный блок имел свободный путь в момент
+     * добавления. Поэтому более поздние блоки можно удалять
+     * первыми, постепенно открывая путь предыдущим.
      */
     private fun createHardLevel(
         requestedCount: Int
     ): MutableList<Cell> {
 
-        var targetCount = requestedCount.coerceAtLeast(1)
+        var targetCount = requestedCount.coerceIn(
+            1,
+            cols * rows - 1
+        )
 
-        while (targetCount > 0) {
-            repeat(250) {
+        while (targetCount >= 1) {
+            repeat(400) {
                 val result = mutableListOf<Cell>()
 
                 val positions = (0 until rows)
@@ -236,22 +263,31 @@ class ColorPuzzleView @JvmOverloads constructor(
 
                 if (result.size != targetCount) return@repeat
 
-                val availableAtStart = countAvailableMoves(result)
+                if (!isSolvable(result)) return@repeat
 
-                if (
-                    availableAtStart in 1..2 &&
-                    isSolvable(result)
-                ) {
+                val available = countAvailableMoves(result)
+
+                /*
+                 * Для плотных полей стараемся получить ровно
+                 * один доступный ход. Если не получилось,
+                 * принимаем вариант с двумя ходами.
+                 */
+                val accepted = when {
+                    targetCount >= 12 -> available == 1
+                    else -> available in 1..2
+                }
+
+                if (accepted) {
                     return result
                 }
             }
 
-            // Если слишком плотный вариант не удалось создать,
-            // пробуем поле с меньшим числом блоков.
+            // Если нужную сложность найти не удалось,
+            // уменьшаем плотность и повторяем генерацию.
             targetCount--
         }
 
-        // Безопасный запасной вариант: хотя бы один блок.
+        // Запасной вариант, если генератор не нашёл поле.
         return mutableListOf(
             createCell(
                 id = 1,
@@ -306,7 +342,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         if (cellSize <= 0f) return
 
-        // Сетка.
+        // Сетка без теней.
         paint.clearShadowLayer()
         paint.style = Paint.Style.STROKE
         paint.color = Color.rgb(218, 222, 228)
