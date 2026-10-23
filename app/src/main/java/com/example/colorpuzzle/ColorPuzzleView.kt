@@ -557,7 +557,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        // НЕ закрашиваем canvas белым цветом (прозрачный задний фон!)
         if (cellSize <= 0f) return
 
         val board = RectF(
@@ -567,19 +566,19 @@ class ColorPuzzleView @JvmOverloads constructor(
             offsetY + rows * cellSize
         )
 
-        // 1. Рисуем глубинную мягкую тень под всей доской
+        // 1. Тёмная подложка доски с тенью
         paint.shader = null
         paint.setShadowLayer(cellSize * 0.20f, 0f, cellSize * 0.10f, Color.argb(100, 0, 0, 0))
         paint.style = Paint.Style.FILL
-        paint.color = Color.rgb(22, 30, 46) // Тёмный стильный тон подложки
+        paint.color = Color.rgb(22, 30, 46)
 
         canvas.drawRoundRect(board, cellSize * 0.16f, cellSize * 0.16f, paint)
         paint.clearShadowLayer()
 
-        // 2. Аккуратная и стильная сетка для тёмного фона
+        // 2. Сетка поля (сделана чуть светлее и контрастнее для лучшей видимости)
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1.2f
-        paint.color = Color.rgb(38, 50, 72)
+        paint.strokeWidth = 1.4f
+        paint.color = Color.rgb(55, 71, 103) // Чуть светлее оттенок сине-серого цвета
 
         for (col in 0..cols) {
             val x = offsetX + col * cellSize
@@ -591,7 +590,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             canvas.drawLine(offsetX, y, offsetX + cols * cellSize, y, paint)
         }
 
-        // 3. Яркие, контрастные блоки над тёмным фоном
+        // 3. Блоки
         for (block in blocks) {
             val inset = cellSize * 0.08f
             val baseLeft = block.currentX + inset
@@ -611,7 +610,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 centerY + currentHeight / 2f
             )
 
-            // Контрастная тень для каждого блока
             val shadowAlpha = (60 * (block.alpha / 255f)).toInt()
             paint.setShadowLayer(
                 cellSize * 0.14f * block.scale,
