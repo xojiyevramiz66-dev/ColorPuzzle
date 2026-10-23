@@ -75,7 +75,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     )
 
     // Единый белый цвет всех стрелок.
-    private val arrowColor = Color.WHITE
+    private val arrowColor = Color.BLACK
 
     init {
         loadLevel(1)
