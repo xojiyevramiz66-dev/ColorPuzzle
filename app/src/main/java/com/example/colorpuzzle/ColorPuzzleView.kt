@@ -1,4 +1,3 @@
-
 package com.example.colorpuzzle
 
 import android.content.Context
@@ -17,8 +16,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    // Собственные модели, чтобы этот файл не зависел
-    // от внешних объявлений Cell и Direction.
     private data class Cell(
         val id: Int,
         val gridX: Int,
@@ -65,13 +62,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    /*
-     * Размер поля:
-     * 1–5: 4x4
-     * 6–10: 4x5
-     * Далее постепенно увеличивается до 10x10.
-     * После 140-го уровня размер остаётся 10x10.
-     */
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
 
@@ -89,12 +79,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Целевая плотность блоков:
-     * 1–10: 70%
-     * 11–30: 80%
-     * 31–60: 85%
-     * 61–100: 90%
-     * 101+: 95%
+     * INSANE: уровни 10001+ стремятся к заполненности 97%.
+     * Это целевая плотность, а не гарантия фактического числа блоков.
      */
     private fun calculateDensity(level: Int): Float {
         return when {
@@ -102,7 +88,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             level <= 30 -> 0.80f
             level <= 60 -> 0.85f
             level <= 100 -> 0.90f
-            else -> 0.95f
+            level < 10_001 -> 0.95f
+            else -> 0.97f
         }
     }
 
@@ -122,7 +109,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         ).coerceAtLeast(1)
 
         blocks.clear()
-        blocks.addAll(createHardLevel(requestedCount))
+        blocks.addAll(createHardLevel(requestedCount, safeLevel))
 
         updateBoardGeometry(width, height)
         positionBlocks()
@@ -149,7 +136,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Проверяет, есть ли другие блоки на пути стрелки.
+     * Стрелка заблокирована, если на её пути к краю
+     * поля находится другой блок в той же строке или колонке.
      */
     private fun isPathBlocked(
         candidate: Cell,
@@ -186,7 +174,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Проверяет, можно ли последовательно удалить все блоки.
+     * Проверка решаемости: пока остаётся хотя бы один блок,
+     * должен существовать блок, который можно удалить.
      */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
@@ -206,12 +195,14 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Генерирует поле с высокой плотностью.
-     * Если подходящая расстановка не найдена, уменьшает
-     * целевое количество блоков и пробует снова.
+     * Генератор сложных уровней.
+     * Для INSANE увеличено количество попыток поиска.
+     * Если заданную плотность не удаётся получить,
+     * генератор постепенно уменьшает количество блоков.
      */
     private fun createHardLevel(
-        requestedCount: Int
+        requestedCount: Int,
+        level: Int
     ): MutableList<Cell> {
 
         var targetCount = requestedCount.coerceIn(
@@ -220,7 +211,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         )
 
         while (targetCount >= 1) {
-            repeat(400) {
+            val attempts = if (level >= 10_001) 600 else 400
+
+            repeat(attempts) {
                 val result = mutableListOf<Cell>()
 
                 val positions = (0 until rows)
@@ -273,7 +266,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             targetCount--
         }
 
-        // Безопасный запасной вариант.
+        // Запасной вариант, чтобы игра могла продолжить работу.
         return mutableListOf(
             createCell(
                 id = 1,
@@ -390,7 +383,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         val len = cellSize * 0.23f
         val head = cellSize * 0.11f
 
-        // Инициализация координат устраняет ошибку компиляции.
         var startX = cx
         var startY = cy
         var endX = cx
