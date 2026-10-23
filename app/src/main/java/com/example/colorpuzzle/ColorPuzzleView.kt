@@ -1,4 +1,3 @@
-ColorPuzzleView.kt
 
 package com.example.colorpuzzle
 
@@ -17,6 +16,22 @@ class ColorPuzzleView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
+
+    // Собственные модели, чтобы этот файл не зависел
+    // от внешних объявлений Cell и Direction.
+    private data class Cell(
+        val id: Int,
+        val gridX: Int,
+        val gridY: Int,
+        val direction: Direction,
+        val colorResId: Int,
+        var currentX: Float = 0f,
+        var currentY: Float = 0f
+    )
+
+    private enum class Direction {
+        UP, DOWN, LEFT, RIGHT
+    }
 
     private var cols = 4
     private var rows = 4
@@ -51,16 +66,11 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Размеры поля:
-     * 1–5:     4x4
-     * 6–10:    4x5
-     * 11–15:   4x6
-     * ...
-     * 31–35:   4x10
-     * 36–40:   5x5
-     * ...
-     * 136–140: 10x10
-     * После 140-го уровня поле остаётся 10x10.
+     * Размер поля:
+     * 1–5: 4x4
+     * 6–10: 4x5
+     * Далее постепенно увеличивается до 10x10.
+     * После 140-го уровня размер остаётся 10x10.
      */
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
@@ -79,15 +89,12 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Плотность с первого уровня:
-     * 1–10:    70%
-     * 11–30:   80%
-     * 31–60:   85%
-     * 61–100:  90%
-     * 101+:    95%
-     *
-     * Это целевая плотность. Генератор может уменьшить
-     * количество блоков, если не найдёт подходящую расстановку.
+     * Целевая плотность блоков:
+     * 1–10: 70%
+     * 11–30: 80%
+     * 31–60: 85%
+     * 61–100: 90%
+     * 101+: 95%
      */
     private fun calculateDensity(level: Int): Float {
         return when {
@@ -142,9 +149,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Проверка препятствий на пути стрелки.
-     * Стрелка может выйти только тогда, когда её путь
-     * до соответствующего края полностью свободен.
+     * Проверяет, есть ли другие блоки на пути стрелки.
      */
     private fun isPathBlocked(
         candidate: Cell,
@@ -175,16 +180,13 @@ class ColorPuzzleView @JvmOverloads constructor(
         return source.count { block ->
             !isPathBlocked(
                 block,
-                source.filter { it.id != block.id }
+                source.filter { other -> other.id != block.id }
             )
         }
     }
 
     /*
-     * Проверяет последовательность удаления.
-     * После удаления свободной стрелки путь другим стрелкам
-     * может только открыться, поэтому проверяем, что на каждом
-     * шаге существует хотя бы один доступный ход.
+     * Проверяет, можно ли последовательно удалить все блоки.
      */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
@@ -193,7 +195,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             val removable = remaining.firstOrNull { block ->
                 !isPathBlocked(
                     block,
-                    remaining.filter { it.id != block.id }
+                    remaining.filter { other -> other.id != block.id }
                 )
             } ?: return false
 
@@ -204,16 +206,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /*
-     * Генератор высокой сложности.
-     *
-     * Сначала пытается создать поле с заданной плотностью.
-     * Затем старается оставить в начале только 1–2 доступных
-     * хода. Если расстановка не подходит, выполняет новую попытку.
-     * При неудаче уменьшает количество блоков.
-     *
-     * Каждый добавленный блок имел свободный путь в момент
-     * добавления. Поэтому более поздние блоки можно удалять
-     * первыми, постепенно открывая путь предыдущим.
+     * Генерирует поле с высокой плотностью.
+     * Если подходящая расстановка не найдена, уменьшает
+     * целевое количество блоков и пробует снова.
      */
     private fun createHardLevel(
         requestedCount: Int
@@ -237,8 +232,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                 for ((x, y) in positions) {
                     if (result.size >= targetCount) break
 
-                    val directions = Direction.values().toList()
-                        .shuffled()
+                    val directions = Direction.values().toList().shuffled()
 
                     val direction = directions.firstOrNull { dir ->
                         val candidate = createCell(
@@ -262,16 +256,10 @@ class ColorPuzzleView @JvmOverloads constructor(
                 }
 
                 if (result.size != targetCount) return@repeat
-
                 if (!isSolvable(result)) return@repeat
 
                 val available = countAvailableMoves(result)
 
-                /*
-                 * Для плотных полей стараемся получить ровно
-                 * один доступный ход. Если не получилось,
-                 * принимаем вариант с двумя ходами.
-                 */
                 val accepted = when {
                     targetCount >= 12 -> available == 1
                     else -> available in 1..2
@@ -282,12 +270,10 @@ class ColorPuzzleView @JvmOverloads constructor(
                 }
             }
 
-            // Если нужную сложность найти не удалось,
-            // уменьшаем плотность и повторяем генерацию.
             targetCount--
         }
 
-        // Запасной вариант, если генератор не нашёл поле.
+        // Безопасный запасной вариант.
         return mutableListOf(
             createCell(
                 id = 1,
@@ -404,10 +390,11 @@ class ColorPuzzleView @JvmOverloads constructor(
         val len = cellSize * 0.23f
         val head = cellSize * 0.11f
 
-        val startX: Float
-        val startY: Float
-        val endX: Float
-        val endY: Float
+        // Инициализация координат устраняет ошибку компиляции.
+        var startX = cx
+        var startY = cy
+        var endX = cx
+        var endY = cy
 
         when (block.direction) {
             Direction.UP -> {
@@ -513,11 +500,11 @@ class ColorPuzzleView @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 if (cellSize <= 0f) return true
 
-                val block = blocks.firstOrNull {
-                    event.x >= it.currentX &&
-                        event.x <= it.currentX + cellSize &&
-                        event.y >= it.currentY &&
-                        event.y <= it.currentY + cellSize
+                val block = blocks.firstOrNull { item ->
+                    event.x >= item.currentX &&
+                        event.x <= item.currentX + cellSize &&
+                        event.y >= item.currentY &&
+                        event.y <= item.currentY + cellSize
                 }
 
                 if (block != null) {
@@ -540,7 +527,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun evaluateMove(block: Cell) {
         val blocked = isPathBlocked(
             block,
-            blocks.filter { it.id != block.id }
+            blocks.filter { other -> other.id != block.id }
         )
 
         if (blocked) {
