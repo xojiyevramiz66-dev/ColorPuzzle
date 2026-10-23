@@ -41,17 +41,22 @@ class ColorPuzzleView @JvmOverloads constructor(
     fun loadLevel(level: Int) {
         blocks.clear()
 
-        // Количество блоков растёт каждые два уровня.
+        // Количество блоков увеличивается каждые два уровня.
         val count = minOf(16, 3 + (level - 1) / 2)
 
         val cells = (0 until rows)
-            .flatMap { y -> (0 until cols).map { x -> x to y } }
+            .flatMap { y ->
+                (0 until cols).map { x -> x to y }
+            }
             .shuffled()
 
-        // Все блоки одного столбца смотрят в одном направлении.
-        // Это позволяет пройти любой сгенерированный уровень.
-        val directions = (0 until cols).associateWith {
-            if (Random.nextBoolean()) Direction.UP else Direction.DOWN
+        // ИСПРАВЛЕНИЕ:
+        // Теперь доступны все четыре направления.
+        val allDirections = Direction.values().toList().shuffled()
+
+        // Каждому столбцу назначается направление.
+        val directions = (0 until cols).associateWith { column ->
+            allDirections[column]
         }
 
         val colors = intArrayOf(
@@ -74,7 +79,9 @@ class ColorPuzzleView @JvmOverloads constructor(
                     gridX = x,
                     gridY = y,
                     direction = directions.getValue(x),
-                    colorResId = colors[Random.nextInt(colors.size)]
+                    colorResId = colors[
+                        Random.nextInt(colors.size)
+                    ]
                 )
             )
         }
@@ -95,7 +102,10 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     override fun onSizeChanged(
-        w: Int, h: Int, oldw: Int, oldh: Int
+        w: Int,
+        h: Int,
+        oldw: Int,
+        oldh: Int
     ) {
         super.onSizeChanged(w, h, oldw, oldh)
 
@@ -108,6 +118,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
         if (cellSize <= 0f) return
 
         canvas.drawColor(Color.rgb(245, 245, 245))
@@ -118,17 +129,25 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         for (r in 0..rows) {
             val y = offsetY + r * cellSize
+
             canvas.drawLine(
-                offsetX, y,
-                offsetX + cols * cellSize, y, paint
+                offsetX,
+                y,
+                offsetX + cols * cellSize,
+                y,
+                paint
             )
         }
 
         for (c in 0..cols) {
             val x = offsetX + c * cellSize
+
             canvas.drawLine(
-                x, offsetY,
-                x, offsetY + rows * cellSize, paint
+                x,
+                offsetY,
+                x,
+                offsetY + rows * cellSize,
+                paint
             )
         }
 
@@ -137,6 +156,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             paint.color = block.colorResId
 
             val inset = cellSize * 0.09f
+
             val rect = RectF(
                 block.currentX + inset,
                 block.currentY + inset,
@@ -145,8 +165,10 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
 
             canvas.drawRoundRect(
-                rect, cellSize * 0.16f,
-                cellSize * 0.16f, paint
+                rect,
+                cellSize * 0.16f,
+                cellSize * 0.16f,
+                paint
             )
 
             drawArrow(canvas, block)
@@ -160,7 +182,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         paint.color = Color.WHITE
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = (cellSize * 0.055f).coerceAtLeast(3f)
+        paint.strokeWidth =
+            (cellSize * 0.055f).coerceAtLeast(3f)
         paint.strokeCap = Paint.Cap.ROUND
 
         val endX: Float
@@ -172,16 +195,19 @@ class ColorPuzzleView @JvmOverloads constructor(
                 endY = cy - len
                 canvas.drawLine(cx, cy + len, endX, endY, paint)
             }
+
             Direction.DOWN -> {
                 endX = cx
                 endY = cy + len
                 canvas.drawLine(cx, cy - len, endX, endY, paint)
             }
+
             Direction.LEFT -> {
                 endX = cx - len
                 endY = cy
                 canvas.drawLine(cx + len, cy, endX, endY, paint)
             }
+
             Direction.RIGHT -> {
                 endX = cx + len
                 endY = cy
@@ -193,20 +219,47 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         when (block.direction) {
             Direction.UP -> {
-                canvas.drawLine(endX, endY, endX - head, endY + head, paint)
-                canvas.drawLine(endX, endY, endX + head, endY + head, paint)
+                canvas.drawLine(
+                    endX, endY,
+                    endX - head, endY + head, paint
+                )
+                canvas.drawLine(
+                    endX, endY,
+                    endX + head, endY + head, paint
+                )
             }
+
             Direction.DOWN -> {
-                canvas.drawLine(endX, endY, endX - head, endY - head, paint)
-                canvas.drawLine(endX, endY, endX + head, endY - head, paint)
+                canvas.drawLine(
+                    endX, endY,
+                    endX - head, endY - head, paint
+                )
+                canvas.drawLine(
+                    endX, endY,
+                    endX + head, endY - head, paint
+                )
             }
+
             Direction.LEFT -> {
-                canvas.drawLine(endX, endY, endX + head, endY - head, paint)
-                canvas.drawLine(endX, endY, endX + head, endY + head, paint)
+                canvas.drawLine(
+                    endX, endY,
+                    endX + head, endY - head, paint
+                )
+                canvas.drawLine(
+                    endX, endY,
+                    endX + head, endY + head, paint
+                )
             }
+
             Direction.RIGHT -> {
-                canvas.drawLine(endX, endY, endX - head, endY - head, paint)
-                canvas.drawLine(endX, endY, endX - head, endY + head, paint)
+                canvas.drawLine(
+                    endX, endY,
+                    endX - head, endY - head, paint
+                )
+                canvas.drawLine(
+                    endX, endY,
+                    endX - head, endY + head, paint
+                )
             }
         }
 
@@ -226,7 +279,9 @@ class ColorPuzzleView @JvmOverloads constructor(
                     event.y <= it.currentY + cellSize
                 }
 
-                if (block != null) evaluateMove(block)
+                if (block != null) {
+                    evaluateMove(block)
+                }
 
                 performClick()
                 return true
