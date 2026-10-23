@@ -9,6 +9,8 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.random.Random
@@ -55,6 +57,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     interface OnGameEventListener {
         fun onWrongMove()
+        fun onMoveMade()
         fun onLevelCompleted()
     }
 
@@ -73,7 +76,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    // Размер поля увеличивается каждые пять уровней.
+    // Размер поля увеличивается по мере прохождения уровней.
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
 
@@ -131,6 +134,123 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
+    /**
+     * Экспортирует текущее состояние поля в JSON.
+     * Используется MainActivity для сохранения прогресса.
+     */
+    fun exportState(): String {
+        val root = JSONObject()
+        root.put("level", currentLevel)
+        root.put("cols", cols)
+        root.put("rows", rows)
+
+        val array = JSONArray()
+
+        blocks.forEach { block ->
+            array.put(
+                JSONObject().apply {
+                    put("id", block.id)
+                    put("x", block.gridX)
+                    put("y", block.gridY)
+                    put("direction", block.direction.name)
+                    put("color", block.colorResId)
+                }
+            )
+        }
+
+        root.put("blocks", array)
+        return root.toString()
+    }
+
+    /**
+     * Восстанавливает поле из JSON.
+     * Возвращает false, если данные повреждены
+     * или относятся к другому уровню.
+     */
+    fun restoreState(state: String): Boolean {
+        return try {
+            val root = JSONObject(state)
+
+            val savedLevel = root.getInt("level")
+            val savedCols = root.getInt("cols")
+            val savedRows = root.getInt("rows")
+
+            if (savedLevel != currentLevel) {
+                return false
+            }
+
+            val expectedSize = calculateBoardSize(savedLevel)
+
+            if (savedCols != expectedSize.first ||
+                savedRows != expectedSize.second
+            ) {
+                return false
+            }
+
+            val array = root.getJSONArray("blocks")
+
+            // Максимум один блок на клетку.
+            if (array.length() > savedCols * savedRows) {
+                return false
+            }
+
+            val restored = mutableListOf<Cell>()
+            val ids = mutableSetOf<Int>()
+            val positions = mutableSetOf<Pair<Int, Int>>()
+
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+
+                val id = item.getInt("id")
+                val x = item.getInt("x")
+                val y = item.getInt("y")
+                val direction = Direction.valueOf(
+                    item.getString("direction")
+                )
+                val color = item.getInt("color")
+
+                if (id < 1 ||
+                    x !in 0 until savedCols ||
+                    y !in 0 until savedRows ||
+                    color !in colors
+                ) {
+                    return false
+                }
+
+                if (!ids.add(id) || !positions.add(x to y)) {
+                    return false
+                }
+
+                restored.add(
+                    Cell(
+                        id = id,
+                        gridX = x,
+                        gridY = y,
+                        direction = direction,
+                        colorResId = color
+                    )
+                )
+            }
+
+            cols = savedCols
+            rows = savedRows
+            currentLevel = savedLevel
+
+            blocks.clear()
+            blocks.addAll(restored)
+
+            lastDifficultyMetrics = measureDifficulty(blocks)
+
+            updateBoardGeometry(width, height)
+            positionBlocks()
+            invalidate()
+
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun createCell(
         id: Int,
         x: Int,
@@ -144,7 +264,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         colorResId = colors[Random.nextInt(colors.size)]
     )
 
-    // Проверяет, пересекает ли другой блок направление стрелки.
+    /**
+     * Проверяет, находится ли другой блок на пути стрелки.
+     */
     private fun isPathBlocked(
         candidate: Cell,
         others: List<Cell>
@@ -186,7 +308,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         return source.count { isAvailable(it, source) }
     }
 
-    // Проверка: можно ли удалить все блоки по правилам игры.
+    /**
+     * Проверяет, можно ли удалить все блоки по правилам игры.
+     */
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
 
@@ -201,13 +325,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         return true
     }
 
-    /*
-     * Умный генератор:
-     * 1. Создаёт несколько случайных раскладок.
-     * 2. Отбрасывает раскладки с неправильным количеством блоков.
-     * 3. Проверяет решаемость.
-     * 4. Оценивает количество доступных ходов и глубину зависимостей.
-     * 5. Выбирает лучший вариант или строит резервный.
+    /**
+     * Генерирует сложный, но проходимый уровень.
+     * Если случайная генерация не удалась, использует
+     * гарантированно проходимую резервную раскладку.
      */
     private fun createHardLevel(
         requestedCount: Int,
@@ -242,9 +363,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             val candidate =
                 createRandomBranchingAttempt(target)
 
-            // Частичные уровни не принимаются.
             if (candidate.size != target) continue
-
             if (!isSolvable(candidate)) continue
 
             val metrics = measureDifficulty(candidate)
@@ -266,7 +385,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 bestLevel = candidate
             }
 
-            // break действительно завершает поиск.
             if (
                 metrics.availableMoves <= desiredMoves &&
                 metrics.dependencyDepth >= desiredDepth
@@ -286,7 +404,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             return selected
         }
 
-        // Резервная раскладка с известным порядком решения.
         val fallback = createGuaranteedFallback(target)
 
         check(fallback.size == target) {
@@ -300,10 +417,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         return fallback
     }
 
-    /*
-     * Случайная раскладка.
-     * Новый блок добавляется только тогда, когда его стрелка
-     * не перекрыта уже размещёнными блоками.
+    /**
+     * Каждый новый блок добавляется только тогда,
+     * когда его путь не перекрыт уже созданными блоками.
+     * Поэтому более поздние блоки можно удалять первыми.
      */
     private fun createRandomBranchingAttempt(
         targetCount: Int
@@ -322,8 +439,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         for ((x, y) in positions) {
             if (result.size >= targetCount) break
 
-            val directions =
-                Direction.values().toList().shuffled()
+            val directions = Direction.values().toList().shuffled()
 
             for (direction in directions) {
                 val candidate = createCell(
@@ -344,11 +460,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         return result
     }
 
-    /*
-     * Резервный генератор.
-     * Каждый ряд образует цепочку блоков со стрелками наружу.
-     * Последний блок в ряду можно удалить, после чего открывается
-     * следующий. Поэтому весь уровень можно пройти.
+    /**
+     * Резервная раскладка: каждый ряд содержит стрелки,
+     * направленные в одну сторону. Внутри ряда блоки
+     * удаляются от края к краю без тупиков.
      */
     private fun createGuaranteedFallback(
         targetCount: Int
@@ -388,7 +503,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         return result
     }
 
-    // Оценка количества первых ходов и глубины зависимостей.
+    /**
+     * Оценивает число доступных ходов и глубину зависимостей.
+     */
     private fun measureDifficulty(
         source: List<Cell>
     ): DifficultyMetrics {
@@ -400,7 +517,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         val initialMoves = countAvailableMoves(source)
         val depthById = mutableMapOf<Int, Int>()
 
-        // Блоки с большими id добавлялись позже.
         for (block in source.sortedByDescending { it.id }) {
             val blockers = source.filter { other ->
                 other.id > block.id &&
@@ -469,9 +585,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun positionBlocks() {
         if (cellSize <= 0f) return
 
-        blocks.forEach {
-            it.currentX = offsetX + it.gridX * cellSize
-            it.currentY = offsetY + it.gridY * cellSize
+        blocks.forEach { block ->
+            block.currentX = offsetX + block.gridX * cellSize
+            block.currentY = offsetY + block.gridY * cellSize
         }
     }
 
@@ -500,7 +616,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.color = Color.rgb(218, 222, 228)
         paint.strokeWidth = 1.5f
 
-        // Сетка игрового поля.
+        // Горизонтальные линии сетки.
         for (r in 0..rows) {
             val y = offsetY + r * cellSize
 
@@ -513,6 +629,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         }
 
+        // Вертикальные линии сетки.
         for (c in 0..cols) {
             val x = offsetX + c * cellSize
 
@@ -525,7 +642,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         }
 
-        // Цветные блоки.
+        // Цветные блоки со стрелками.
         for (block in blocks) {
             paint.clearShadowLayer()
             paint.style = Paint.Style.FILL
@@ -694,6 +811,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         return true
     }
 
+    /**
+     * Удаляет блок, если путь стрелки свободен.
+     * Уведомляет MainActivity о ходе, ошибке или победе.
+     */
     private fun evaluateMove(block: Cell) {
         if (
             isPathBlocked(
@@ -710,6 +831,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         if (blocks.isEmpty()) {
             onGameEventListener?.onLevelCompleted()
+        } else {
+            onGameEventListener?.onMoveMade()
         }
     }
 }
