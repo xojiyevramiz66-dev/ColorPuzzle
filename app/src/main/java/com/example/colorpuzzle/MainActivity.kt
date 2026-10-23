@@ -1,4 +1,3 @@
-
 package com.example.colorpuzzle
 
 import android.content.Context
