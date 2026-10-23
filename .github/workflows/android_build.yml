@@ -1,50 +1,40 @@
 name: Build ColorPuzzle APK
 
 on:
-push:
-branches:
-- main
-workflow_dispatch:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-build:
-name: Build Android APK
-runs-on: ubuntu-latest
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Set up JDK 17
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-  - name: Set up Gradle
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.2.1'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.2.1'
 
-  - name: Verify project files
-    run: |
-      test -f settings.gradle
-      test -f build.gradle
-      test -f app/build.gradle
-      test -f app/src/main/AndroidManifest.xml
-      test -f app/src/main/java/com/example/colorpuzzle/MainActivity.kt
-      test -f app/src/main/java/com/example/colorpuzzle/ColorPuzzleView.kt
-      test -f app/src/main/java/com/example/colorpuzzle/Cell.kt
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
 
-  - name: Build debug APK
-    run: gradle --no-daemon assembleDebug
-
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: ColorPuzzle-debug
-      path: app/build/outputs/apk/debug/*.apk
-      if-no-files-found: error
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ColorPuzzle-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
