@@ -54,78 +54,191 @@ class ColorPuzzleView @JvmOverloads constructor(
             Color.rgb(92, 107, 192)
         )
 
-        // Все доступные позиции на игровом поле.
-        val availableCells = (0 until rows)
-            .flatMap { y ->
-                (0 until cols).map { x -> x to y }
-            }
-            .toMutableList()
-
-        availableCells.shuffle()
-
-        // Проверяем, свободен ли путь в выбранном направлении.
-        // Учитываются все блоки, которые уже добавлены на поле.
-        fun pathIsClear(
-            x: Int,
-            y: Int,
-            direction: Direction
+        fun isPathBlocked(
+            candidate: Cell,
+            others: List<Cell>
         ): Boolean {
-            return blocks.none { other ->
-                when (direction) {
+            return others.any { other ->
+                when (candidate.direction) {
                     Direction.UP ->
-                        other.gridX == x &&
-                            other.gridY < y
+                        other.gridX == candidate.gridX &&
+                            other.gridY < candidate.gridY
 
                     Direction.DOWN ->
-                        other.gridX == x &&
-                            other.gridY > y
+                        other.gridX == candidate.gridX &&
+                            other.gridY > candidate.gridY
 
                     Direction.LEFT ->
-                        other.gridY == y &&
-                            other.gridX < x
+                        other.gridY == candidate.gridY &&
+                            other.gridX < candidate.gridX
 
                     Direction.RIGHT ->
-                        other.gridY == y &&
-                            other.gridX > x
+                        other.gridY == candidate.gridY &&
+                            other.gridX > candidate.gridX
                 }
             }
         }
 
-        // Создаём каждый следующий блок так, чтобы его путь
-        // был свободен от ранее созданных блоков.
-        for (i in 0 until count) {
-            val candidates = availableCells.flatMap { (x, y) ->
-                Direction.values()
-                    .filter { direction ->
-                        pathIsClear(x, y, direction)
-                    }
-                    .map { direction ->
-                        Triple(x, y, direction)
-                    }
+        // Запрещаем стрелки, направленные именно навстречу:
+        // левая направлена вправо, а правая — влево;
+        // верхняя направлена вниз, а нижняя — вверх.
+        fun arrowsFaceEachOther(
+            candidate: Cell,
+            others: List<Cell>
+        ): Boolean {
+            return others.any { other ->
+                val sameRow = other.gridY == candidate.gridY
+                val sameColumn = other.gridX == candidate.gridX
+
+                val horizontalConflict =
+                    sameRow &&
+                    (
+                        (
+                            candidate.gridX < other.gridX &&
+                                candidate.direction == Direction.RIGHT &&
+                                other.direction == Direction.LEFT
+                        ) ||
+                        (
+                            other.gridX < candidate.gridX &&
+                                other.direction == Direction.RIGHT &&
+                                candidate.direction == Direction.LEFT
+                        )
+                    )
+
+                val verticalConflict =
+                    sameColumn &&
+                    (
+                        (
+                            candidate.gridY < other.gridY &&
+                                candidate.direction == Direction.DOWN &&
+                                other.direction == Direction.UP
+                        ) ||
+                        (
+                            other.gridY < candidate.gridY &&
+                                other.direction == Direction.DOWN &&
+                                candidate.direction == Direction.UP
+                        )
+                    )
+
+                horizontalConflict || verticalConflict
+            }
+        }
+
+        // Проверяем, можно ли удалить все блоки по очереди.
+        fun isSolvable(source: List<Cell>): Boolean {
+            val remaining = source.toMutableList()
+
+            while (remaining.isNotEmpty()) {
+                val removable = remaining.firstOrNull { block ->
+                    !isPathBlocked(
+                        block,
+                        remaining.filter { it.id != block.id }
+                    )
+                } ?: return false
+
+                remaining.remove(removable)
             }
 
-            // Для текущего поля 4x4 всегда можно найти
-            // свободную граничную позицию с выходом наружу.
-            if (candidates.isEmpty()) {
-                break
-            }
+            return true
+        }
 
-            val (x, y, direction) =
-                candidates[Random.nextInt(candidates.size)]
-
-            availableCells.remove(x to y)
-
-            blocks.add(
-                Cell(
-                    id = i + 1,
-                    gridX = x,
-                    gridY = y,
-                    direction = direction,
-                    colorResId = colors[
-                        Random.nextInt(colors.size)
-                    ]
-                )
+        fun createBlock(
+            id: Int,
+            x: Int,
+            y: Int,
+            direction: Direction
+        ): Cell {
+            return Cell(
+                id = id,
+                gridX = x,
+                gridY = y,
+                direction = direction,
+                colorResId = colors[Random.nextInt(colors.size)]
             )
+        }
+
+        // Пробуем случайные варианты, пока не найдём уровень,
+        // в котором нет встречных стрелок и все блоки удаляемы.
+        var generated = false
+
+        repeat(1500) {
+            if (generated) return@repeat
+
+            val positions = (0 until rows)
+                .flatMap { y ->
+                    (0 until cols).map { x -> x to y }
+                }
+                .shuffled()
+
+            val candidateBlocks = mutableListOf<Cell>()
+
+            for ((x, y) in positions) {
+                if (candidateBlocks.size >= count) break
+
+                val directions = Direction.values().toList().shuffled()
+
+                val chosenDirection = directions.firstOrNull { direction ->
+                    val candidate = createBlock(
+                        candidateBlocks.size + 1,
+                        x,
+                        y,
+                        direction
+                    )
+
+                    !arrowsFaceEachOther(candidate, candidateBlocks)
+                } ?: continue
+
+                candidateBlocks.add(
+                    createBlock(
+                        candidateBlocks.size + 1,
+                        x,
+                        y,
+                        chosenDirection
+                    )
+                )
+            }
+
+            if (
+                candidateBlocks.size == count &&
+                isSolvable(candidateBlocks)
+            ) {
+                blocks.clear()
+                blocks.addAll(candidateBlocks)
+                generated = true
+            }
+        }
+
+        // Гарантированный запасной вариант.
+        // Блоки направлены наружу: слева — влево,
+        // справа — вправо. Встречных стрелок нет.
+        // В каждой половине ряда блоки можно удалять
+        // последовательно от края к центру.
+        if (!generated) {
+            blocks.clear()
+
+            val positions = (0 until rows)
+                .flatMap { y ->
+                    (0 until cols).map { x -> x to y }
+                }
+                .shuffled()
+                .take(count)
+
+            positions.forEachIndexed { index, (x, y) ->
+                val direction = if (x < cols / 2) {
+                    Direction.LEFT
+                } else {
+                    Direction.RIGHT
+                }
+
+                blocks.add(
+                    createBlock(
+                        index + 1,
+                        x,
+                        y,
+                        direction
+                    )
+                )
+            }
         }
 
         positionBlocks()
@@ -166,7 +279,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         canvas.drawColor(Color.rgb(245, 245, 245))
 
-        // Рисуем сетку игрового поля.
         paint.style = Paint.Style.STROKE
         paint.color = Color.LTGRAY
         paint.strokeWidth = 2f
@@ -195,7 +307,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         }
 
-        // Рисуем цветные блоки.
         for (block in blocks) {
             paint.style = Paint.Style.FILL
             paint.color = block.colorResId
@@ -238,41 +349,25 @@ class ColorPuzzleView @JvmOverloads constructor(
             Direction.UP -> {
                 endX = cx
                 endY = cy - len
-                canvas.drawLine(
-                    cx, cy + len,
-                    endX, endY,
-                    paint
-                )
+                canvas.drawLine(cx, cy + len, endX, endY, paint)
             }
 
             Direction.DOWN -> {
                 endX = cx
                 endY = cy + len
-                canvas.drawLine(
-                    cx, cy - len,
-                    endX, endY,
-                    paint
-                )
+                canvas.drawLine(cx, cy - len, endX, endY, paint)
             }
 
             Direction.LEFT -> {
                 endX = cx - len
                 endY = cy
-                canvas.drawLine(
-                    cx + len, cy,
-                    endX, endY,
-                    paint
-                )
+                canvas.drawLine(cx + len, cy, endX, endY, paint)
             }
 
             Direction.RIGHT -> {
                 endX = cx + len
                 endY = cy
-                canvas.drawLine(
-                    cx - len, cy,
-                    endX, endY,
-                    paint
-                )
+                canvas.drawLine(cx - len, cy, endX, endY, paint)
             }
         }
 
@@ -366,7 +461,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun evaluateMove(block: Cell) {
-        // Проверяем, не мешает ли другой блок движению.
         val isBlocked = blocks.any { other ->
             if (other.id == block.id) {
                 return@any false
@@ -396,11 +490,9 @@ class ColorPuzzleView @JvmOverloads constructor(
             return
         }
 
-        // Удаляем блок, если его путь свободен.
         blocks.remove(block)
         invalidate()
 
-        // Сообщаем о завершении уровня.
         if (blocks.isEmpty()) {
             onGameEventListener?.onLevelCompleted()
         }
