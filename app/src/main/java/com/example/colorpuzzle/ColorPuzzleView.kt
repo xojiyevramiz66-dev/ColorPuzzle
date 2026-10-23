@@ -6,10 +6,8 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.Shader
 import android.os.Build
 import android.util.AttributeSet
 import android.view.HapticFeedbackConstants
@@ -61,14 +59,12 @@ class ColorPuzzleView @JvmOverloads constructor(
     private val historyStack = Stack<String>()
     private var lastDifficultyMetrics = DifficultyMetrics(0, 0, 0)
 
-    // --- Краски ---
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val blockPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
     private val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
 
     private val blocks = mutableListOf<Cell>()
     
-    // Текущий аниматор хода — для корректной отмены при loadLevel/restoreState
     private var runningAnimator: ValueAnimator? = null
 
     var onGameEventListener: OnGameEventListener? = null
@@ -93,7 +89,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     private val arrowColor = Color.WHITE
 
     init {
-        // НЕ ставим LAYER_TYPE_SOFTWARE — графика работает в hardware
         isHapticFeedbackEnabled = true
         loadLevel(1)
     }
@@ -119,10 +114,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun calculateDensity(level: Int): Float {
-        val progress =
-            ((level.coerceAtLeast(1) - 1) / 120f)
-                .coerceIn(0f, 1f)
-
+        val progress = ((level.coerceAtLeast(1) - 1) / 120f).coerceIn(0f, 1f)
         return 0.48f + progress * 0.36f
     }
 
@@ -134,23 +126,18 @@ class ColorPuzzleView @JvmOverloads constructor(
         animatingBlockId = null
         historyStack.clear()
 
-        val (newCols, newRows) =
-            calculateBoardSize(currentLevel)
-
+        val (newCols, newRows) = calculateBoardSize(currentLevel)
         cols = newCols
         rows = newRows
 
         val totalCells = cols * rows
-
         val requestedCount = minOf(
             totalCells - 1,
             (totalCells * calculateDensity(currentLevel)).toInt()
         ).coerceAtLeast(1)
 
         blocks.clear()
-        blocks.addAll(
-            createHardLevel(requestedCount, currentLevel)
-        )
+        blocks.addAll(createHardLevel(requestedCount, currentLevel))
 
         lastDifficultyMetrics = measureDifficulty(blocks)
 
@@ -169,13 +156,11 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     fun exportState(): String {
         val root = JSONObject()
-
         root.put("level", currentLevel)
         root.put("cols", cols)
         root.put("rows", rows)
 
         val array = JSONArray()
-
         blocks.forEach { block ->
             array.put(
                 JSONObject().apply {
@@ -195,7 +180,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     fun restoreState(state: String): Boolean {
         return try {
             val root = JSONObject(state)
-
             val savedLevel = root.getInt("level")
             val savedCols = root.getInt("cols")
             val savedRows = root.getInt("rows")
@@ -203,13 +187,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             if (savedLevel != currentLevel) return false
 
             val expectedSize = calculateBoardSize(savedLevel)
-
-            if (
-                savedCols != expectedSize.first ||
-                savedRows != expectedSize.second
-            ) {
-                return false
-            }
+            if (savedCols != expectedSize.first || savedRows != expectedSize.second) return false
 
             val array = root.getJSONArray("blocks")
             val restored = mutableListOf<Cell>()
@@ -218,32 +196,16 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
-
                 val id = item.getInt("id")
                 val x = item.getInt("x")
                 val y = item.getInt("y")
                 val direction = Direction.valueOf(item.getString("direction"))
                 val color = item.getInt("color")
 
-                if (id < 1 || x !in 0 until savedCols || y !in 0 until savedRows) {
-                    return false
-                }
+                if (id < 1 || x !in 0 until savedCols || y !in 0 until savedRows) return false
+                if (!ids.add(id) || !positions.add(x to y)) return false
 
-                if (!ids.add(id) || !positions.add(x to y)) {
-                    return false
-                }
-
-                restored.add(
-                    Cell(
-                        id = id,
-                        gridX = x,
-                        gridY = y,
-                        direction = direction,
-                        colorResId = color,
-                        scale = 1f,
-                        alpha = 255
-                    )
-                )
+                restored.add(Cell(id, x, y, direction, color, scale = 1f, alpha = 255))
             }
 
             runningAnimator?.cancel()
@@ -258,7 +220,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             blocks.addAll(restored)
 
             lastDifficultyMetrics = measureDifficulty(blocks)
-
             updateBoardGeometry(width, height)
             positionBlocks()
             invalidate()
@@ -280,15 +241,10 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // =====================================================================
-    // Генерация уровня
+    // Логика и генерация
     // =====================================================================
 
-    private fun createCell(
-        id: Int,
-        x: Int,
-        y: Int,
-        direction: Direction
-    ) = Cell(
+    private fun createCell(id: Int, x: Int, y: Int, direction: Direction) = Cell(
         id = id,
         gridX = x,
         gridY = y,
@@ -298,156 +254,104 @@ class ColorPuzzleView @JvmOverloads constructor(
         alpha = 255
     )
 
-    private fun isPathBlocked(
-        candidate: Cell,
-        others: List<Cell>
-    ): Boolean {
+    private fun isPathBlocked(candidate: Cell, others: List<Cell>): Boolean {
         return others.any { other ->
             when (candidate.direction) {
-                Direction.UP ->
-                    other.gridX == candidate.gridX &&
-                        other.gridY < candidate.gridY
-
-                Direction.DOWN ->
-                    other.gridX == candidate.gridX &&
-                        other.gridY > candidate.gridY
-
-                Direction.LEFT ->
-                    other.gridY == candidate.gridY &&
-                        other.gridX < candidate.gridX
-
-                Direction.RIGHT ->
-                    other.gridY == candidate.gridY &&
-                        other.gridX > candidate.gridX
+                Direction.UP -> other.gridX == candidate.gridX && other.gridY < candidate.gridY
+                Direction.DOWN -> other.gridX == candidate.gridX && other.gridY > candidate.gridY
+                Direction.LEFT -> other.gridY == candidate.gridY && other.gridX < candidate.gridX
+                Direction.RIGHT -> other.gridY == candidate.gridY && other.gridX > candidate.gridX
             }
         }
     }
 
-    private fun isAvailable(
-        block: Cell,
-        source: List<Cell>
-    ): Boolean {
-        return !isPathBlocked(
-            block,
-            source.filter { it.id != block.id }
-        )
+    private fun isAvailable(block: Cell, source: List<Cell>): Boolean {
+        return !isPathBlocked(block, source.filter { it.id != block.id })
     }
 
-    private fun countAvailableMoves(
-        source: List<Cell>
-    ): Int {
-        return source.count {
-            isAvailable(it, source)
-        }
+    private fun countAvailableMoves(source: List<Cell>): Int {
+        return source.count { isAvailable(it, source) }
     }
 
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
-
         while (remaining.isNotEmpty()) {
-            val removable = remaining.firstOrNull {
-                isAvailable(it, remaining)
-            } ?: return false
-
+            val removable = remaining.firstOrNull { isAvailable(it, remaining) } ?: return false
             remaining.remove(removable)
         }
-
         return true
     }
 
-    private fun createHardLevel(
-        requestedCount: Int,
-        level: Int
-    ): MutableList<Cell> {
-        val target = requestedCount.coerceIn(
-            1,
-            cols * rows - 1
-        )
+    private fun createHardLevel(requestedCount: Int, level: Int): MutableList<Cell> {
+        val target = requestedCount.coerceIn(1, cols * rows - 1)
 
+        // УЖЕСТОЧЕНИЕ: На высоких уровнях требуем только 1 доступный ход
         val desiredMoves = when {
-            level < 6 -> 3
-            level < 20 -> 2
-            level < 50 -> 2
-            else -> 1
+            level <= 3 -> 3      // Обучение
+            level <= 8 -> 2      // Разогрев
+            else -> 1            // Хардкор: только 1 правильный путь
         }
 
+        // УВЕЛИЧЕНИЕ ГЛУБИНЫ: Матрешка должна быть максимально длинной
         val desiredDepth = when {
-            level < 6 -> 2
-            level < 20 -> target / 4
-            level < 50 -> target / 3
-            else -> target / 2
+            level <= 3 -> 2
+            level <= 8 -> target / 2
+            else -> target - 1
         }.coerceAtLeast(1)
 
         var bestLevel: MutableList<Cell>? = null
         var bestScore = Int.MAX_VALUE
 
-        val attempts = if (target >= 60) 180 else 260
+        // Увеличиваем количество попыток для сложных уровней
+        val attempts = if (target >= 50) 400 else 300
 
         for (attempt in 0 until attempts) {
             val candidate = createRandomBranchingAttempt(target)
-
             if (candidate.size != target) continue
             if (!isSolvable(candidate)) continue
 
             val metrics = measureDifficulty(candidate)
 
-            val movePenalty =
-                (metrics.availableMoves - desiredMoves).coerceAtLeast(0) * 12
+            // ЖЕСТКИЙ ОТСЕВ: Если ходов больше, чем мы хотим — пропускаем
+            if (metrics.availableMoves > desiredMoves) continue
 
-            val depthPenalty =
-                abs(metrics.dependencyDepth - desiredDepth) * 3
-
-            val score = movePenalty + depthPenalty + Random.nextInt(0, 8)
+            // Штрафы для поиска идеального уровня
+            val movePenalty = (metrics.availableMoves - desiredMoves).coerceAtLeast(0) * 50
+            val depthPenalty = abs(metrics.dependencyDepth - desiredDepth) * 10
+            val score = movePenalty + depthPenalty + Random.nextInt(0, 10)
 
             if (score < bestScore) {
                 bestScore = score
                 bestLevel = candidate
             }
 
-            if (
-                metrics.availableMoves <= desiredMoves &&
-                metrics.dependencyDepth >= desiredDepth
-            ) {
+            // Если нашли идеальный баланс — выходим
+            if (metrics.availableMoves <= desiredMoves && metrics.dependencyDepth >= desiredDepth) {
                 bestLevel = candidate
                 break
             }
         }
 
         val selected = bestLevel
-
-        if (
-            selected != null &&
-            selected.size == target &&
-            isSolvable(selected)
-        ) {
+        if (selected != null && selected.size == target && isSolvable(selected)) {
             return selected
         }
 
         return createGuaranteedFallback(target)
     }
 
-    private fun createRandomBranchingAttempt(
-        targetCount: Int
-    ): MutableList<Cell> {
+    private fun createRandomBranchingAttempt(targetCount: Int): MutableList<Cell> {
         val result = mutableListOf<Cell>()
-
-        val positions = (0 until rows)
-            .flatMap { y ->
-                (0 until cols).map { x -> x to y }
-            }
-            .shuffled()
+        val positions = (0 until rows).flatMap { y -> (0 until cols).map { x -> x to y } }.shuffled()
 
         var id = 1
 
         for ((x, y) in positions) {
             if (result.size >= targetCount) break
 
-            val directions =
-                Direction.values().toList().shuffled()
-
+            val directions = Direction.values().toList().shuffled()
             for (direction in directions) {
                 val candidate = createCell(id, x, y, direction)
-
                 if (!isPathBlocked(candidate, result)) {
                     result.add(candidate)
                     id++
@@ -455,66 +359,36 @@ class ColorPuzzleView @JvmOverloads constructor(
                 }
             }
         }
-
         return result
     }
 
-    private fun createGuaranteedFallback(
-        targetCount: Int
-    ): MutableList<Cell> {
+    private fun createGuaranteedFallback(targetCount: Int): MutableList<Cell> {
         val result = mutableListOf<Cell>()
         val rowOrder = (0 until rows).shuffled()
 
         var id = 1
-
         for (y in rowOrder) {
             val leftToRight = Random.nextBoolean()
-
-            val xOrder = if (leftToRight) {
-                (0 until cols).toList()
-            } else {
-                (cols - 1 downTo 0).toList()
-            }
-
-            val direction = if (leftToRight) {
-                Direction.RIGHT
-            } else {
-                Direction.LEFT
-            }
+            val xOrder = if (leftToRight) (0 until cols).toList() else (cols - 1 downTo 0).toList()
+            val direction = if (leftToRight) Direction.RIGHT else Direction.LEFT
 
             for (x in xOrder) {
-                if (result.size >= targetCount) {
-                    return result
-                }
-
+                if (result.size >= targetCount) return result
                 result.add(createCell(id++, x, y, direction))
             }
         }
-
         return result
     }
 
-    private fun measureDifficulty(
-        source: List<Cell>
-    ): DifficultyMetrics {
-        if (source.isEmpty()) {
-            return DifficultyMetrics(0, 0, 0)
-        }
+    private fun measureDifficulty(source: List<Cell>): DifficultyMetrics {
+        if (source.isEmpty()) return DifficultyMetrics(0, 0, 0)
 
         val initialMoves = countAvailableMoves(source)
         val depthById = mutableMapOf<Int, Int>()
 
         for (block in source.sortedByDescending { it.id }) {
-            val blockers = source.filter { other ->
-                other.id > block.id && blocksOnRay(block, other)
-            }
-
-            depthById[block.id] =
-                if (blockers.isEmpty()) {
-                    1
-                } else {
-                    1 + (blockers.maxOfOrNull { depthById[it.id] ?: 1 } ?: 0)
-                }
+            val blockers = source.filter { other -> other.id > block.id && blocksOnRay(block, other) }
+            depthById[block.id] = if (blockers.isEmpty()) 1 else 1 + (blockers.maxOfOrNull { depthById[it.id] ?: 1 } ?: 0)
         }
 
         val depth = depthById.values.maxOrNull() ?: 0
@@ -526,92 +400,54 @@ class ColorPuzzleView @JvmOverloads constructor(
         )
     }
 
-    private fun blocksOnRay(
-        block: Cell,
-        other: Cell
-    ): Boolean {
+    private fun blocksOnRay(block: Cell, other: Cell): Boolean {
         return when (block.direction) {
-            Direction.UP ->
-                other.gridX == block.gridX &&
-                    other.gridY < block.gridY
-
-            Direction.DOWN ->
-                other.gridX == block.gridX &&
-                    other.gridY > block.gridY
-
-            Direction.LEFT ->
-                other.gridY == block.gridY &&
-                    other.gridX < block.gridX
-
-            Direction.RIGHT ->
-                other.gridY == block.gridY &&
-                    other.gridX > block.gridX
+            Direction.UP -> other.gridX == block.gridX && other.gridY < block.gridY
+            Direction.DOWN -> other.gridX == block.gridX && other.gridY > block.gridY
+            Direction.LEFT -> other.gridY == block.gridY && other.gridX < block.gridX
+            Direction.RIGHT -> other.gridY == block.gridY && other.gridX > block.gridX
         }
     }
 
     // =====================================================================
-    // Геометрия
+    // Геометрия и отрисовка
     // =====================================================================
 
     private fun updateBoardGeometry(w: Int, h: Int) {
         if (w <= 0 || h <= 0) return
-
         val availableWidth = w * 0.94f
         val availableHeight = h * 0.90f
-
-        cellSize = min(
-            availableWidth / cols,
-            availableHeight / rows
-        )
-
+        cellSize = min(availableWidth / cols, availableHeight / rows)
         offsetX = (w - cellSize * cols) / 2f
         offsetY = (h - cellSize * rows) / 2f
     }
 
     private fun positionBlocks() {
         if (cellSize <= 0f) return
-
         blocks.forEach { block ->
             block.currentX = offsetX + block.gridX * cellSize
             block.currentY = offsetY + block.gridY * cellSize
         }
     }
 
-    override fun onSizeChanged(
-        w: Int,
-        h: Int,
-        oldw: Int,
-        oldh: Int
-    ) {
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-
         updateBoardGeometry(w, h)
         positionBlocks()
         invalidate()
     }
 
-    // =====================================================================
-    // Отрисовка (оригинальный стиль)
-    // =====================================================================
-
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
         if (cellSize <= 0f) return
 
-        val board = RectF(
-            offsetX,
-            offsetY,
-            offsetX + cols * cellSize,
-            offsetY + rows * cellSize
-        )
+        val board = RectF(offsetX, offsetY, offsetX + cols * cellSize, offsetY + rows * cellSize)
 
         // 1. Тёмная подложка доски с тенью
         paint.shader = null
         paint.setShadowLayer(cellSize * 0.20f, 0f, cellSize * 0.10f, Color.argb(100, 0, 0, 0))
         paint.style = Paint.Style.FILL
         paint.color = Color.rgb(22, 30, 46)
-
         canvas.drawRoundRect(board, cellSize * 0.16f, cellSize * 0.16f, paint)
         paint.clearShadowLayer()
 
@@ -624,7 +460,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             val x = offsetX + col * cellSize
             canvas.drawLine(x, offsetY, x, offsetY + rows * cellSize, paint)
         }
-
         for (row in 0..rows) {
             val y = offsetY + row * cellSize
             canvas.drawLine(offsetX, y, offsetX + cols * cellSize, y, paint)
@@ -671,14 +506,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             blockPaint.clearShadowLayer()
 
             if (block.alpha > 30) {
-                drawFlatArrow(
-                    canvas,
-                    centerX,
-                    centerY,
-                    cellSize * 0.23f * block.scale,
-                    block.direction,
-                    block.alpha
-                )
+                drawFlatArrow(canvas, centerX, centerY, cellSize * 0.23f * block.scale, block.direction, block.alpha)
             }
         }
 
@@ -688,25 +516,12 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun applyAlpha(color: Int, alpha: Int): Int {
-        return Color.argb(
-            alpha,
-            Color.red(color),
-            Color.green(color),
-            Color.blue(color)
-        )
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
     }
 
-    private fun drawFlatArrow(
-        canvas: Canvas,
-        cx: Float,
-        cy: Float,
-        length: Float,
-        direction: Direction,
-        alpha: Int
-    ) {
+    private fun drawFlatArrow(canvas: Canvas, cx: Float, cy: Float, length: Float, direction: Direction, alpha: Int) {
         var dx = 0f
         var dy = 0f
-
         when (direction) {
             Direction.UP -> dy = -1f
             Direction.DOWN -> dy = 1f
@@ -729,20 +544,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         blockPaint.color = applyAlpha(arrowColor, alpha)
 
         canvas.drawLine(startX, startY, endX, endY, blockPaint)
-
-        canvas.drawLine(
-            endX, endY,
-            endX - dx * head - dy * head,
-            endY - dy * head + dx * head,
-            blockPaint
-        )
-
-        canvas.drawLine(
-            endX, endY,
-            endX - dx * head + dy * head,
-            endY - dy * head - dx * head,
-            blockPaint
-        )
+        canvas.drawLine(endX, endY, endX - dx * head - dy * head, endY - dy * head + dx * head, blockPaint)
+        canvas.drawLine(endX, endY, endX - dx * head + dy * head, endY - dy * head - dx * head, blockPaint)
 
         blockPaint.style = Paint.Style.FILL
         blockPaint.strokeCap = Paint.Cap.BUTT
@@ -750,22 +553,19 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // =====================================================================
-    // Ввод
+    // Ввод и анимация
     // =====================================================================
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> return true
             MotionEvent.ACTION_CANCEL -> return true
-
             MotionEvent.ACTION_UP -> {
                 if (cellSize <= 0f || animatingBlockId != null) return true
 
                 val block = blocks.firstOrNull { item ->
-                    event.x >= item.currentX &&
-                        event.x <= item.currentX + cellSize &&
-                        event.y >= item.currentY &&
-                        event.y <= item.currentY + cellSize
+                    event.x >= item.currentX && event.x <= item.currentX + cellSize &&
+                    event.y >= item.currentY && event.y <= item.currentY + cellSize
                 }
 
                 if (block != null) {
@@ -776,7 +576,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 return true
             }
         }
-
         return true
     }
 
@@ -786,12 +585,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun evaluateMove(block: Cell) {
-        if (
-            isPathBlocked(
-                block,
-                blocks.filter { it.id != block.id }
-            )
-        ) {
+        if (isPathBlocked(block, blocks.filter { it.id != block.id })) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 performHapticFeedback(HapticFeedbackConstants.REJECT)
             }
@@ -845,7 +639,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                     if (blocks.remove(block)) {
                         animatingBlockId = null
                         invalidate()
-
                         if (blocks.isEmpty()) {
                             onGameEventListener?.onLevelCompleted()
                         } else {
