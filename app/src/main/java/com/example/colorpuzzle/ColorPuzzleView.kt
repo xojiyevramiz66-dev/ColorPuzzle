@@ -324,7 +324,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         requestedCount: Int,
         level: Int
     ): MutableList<Cell> {
-
         val target = requestedCount.coerceIn(
             1,
             cols * rows - 1
@@ -410,7 +409,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun createRandomBranchingAttempt(
         targetCount: Int
     ): MutableList<Cell> {
-
         val result = mutableListOf<Cell>()
 
         val positions = (0 until rows)
@@ -449,7 +447,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun createGuaranteedFallback(
         targetCount: Int
     ): MutableList<Cell> {
-
         val result = mutableListOf<Cell>()
         val rowOrder = (0 until rows).shuffled()
 
@@ -487,7 +484,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun measureDifficulty(
         source: List<Cell>
     ): DifficultyMetrics {
-
         if (source.isEmpty()) {
             return DifficultyMetrics(0, 0, 0)
         }
@@ -584,169 +580,246 @@ class ColorPuzzleView @JvmOverloads constructor(
         invalidate()
     }
 
-    // Улучшенная графика игрового поля.
+    // Псевдо-3D игровое поле.
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
-        canvas.drawColor(Color.rgb(8, 12, 25))
+        canvas.drawColor(Color.rgb(5, 8, 19))
 
         if (cellSize <= 0f) return
 
-        val board = RectF(
-            offsetX,
-            offsetY,
-            offsetX + cols * cellSize,
-            offsetY + rows * cellSize
-        )
+        val depth = cellSize * 0.13f
+        val corner = cellSize * 0.12f
 
-        val boardInset = cellSize * 0.035f
+        val board = RectF(
+            offsetX - depth,
+            offsetY - depth,
+            offsetX + cols * cellSize + depth,
+            offsetY + rows * cellSize + depth
+        )
 
         paint.clearShadowLayer()
         paint.style = Paint.Style.FILL
-
-        // Тёмный градиент фона поля.
         paint.shader = LinearGradient(
             board.left,
             board.top,
             board.right,
             board.bottom,
-            Color.rgb(24, 35, 61),
-            Color.rgb(9, 14, 29),
+            Color.rgb(35, 49, 78),
+            Color.rgb(8, 13, 28),
             Shader.TileMode.CLAMP
         )
-
         canvas.drawRoundRect(
-            RectF(
-                board.left - boardInset,
-                board.top - boardInset,
-                board.right + boardInset,
-                board.bottom + boardInset
-            ),
-            cellSize * 0.14f,
-            cellSize * 0.14f,
+            board,
+            cellSize * 0.17f,
+            cellSize * 0.17f,
             paint
         )
-
         paint.shader = null
 
-        // Отрисовка ячеек сетки.
-        for (r in 0 until rows) {
-            for (c in 0 until cols) {
-                val left = offsetX + c * cellSize
-                val top = offsetY + r * cellSize
+        // Металлическая окантовка поля.
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (cellSize * 0.018f).coerceAtLeast(1f)
+        paint.color = Color.rgb(70, 91, 126)
+        canvas.drawRoundRect(
+            board,
+            cellSize * 0.17f,
+            cellSize * 0.17f,
+            paint
+        )
+        paint.style = Paint.Style.FILL
+
+        // Утопленные ячейки.
+        for (row in 0 until rows) {
+            for (col in 0 until cols) {
+                val left = offsetX + col * cellSize
+                val top = offsetY + row * cellSize
 
                 val cell = RectF(
-                    left + cellSize * 0.018f,
-                    top + cellSize * 0.018f,
-                    left + cellSize * 0.982f,
-                    top + cellSize * 0.982f
+                    left + cellSize * 0.035f,
+                    top + cellSize * 0.035f,
+                    left + cellSize * 0.965f,
+                    top + cellSize * 0.965f
                 )
 
-                val radius = cellSize * 0.075f
+                paint.color = Color.rgb(3, 7, 17)
+                canvas.drawRoundRect(
+                    cell,
+                    corner,
+                    corner,
+                    paint
+                )
 
-                paint.style = Paint.Style.FILL
+                val inner = RectF(
+                    cell.left + cellSize * 0.025f,
+                    cell.top + cellSize * 0.025f,
+                    cell.right - cellSize * 0.025f,
+                    cell.bottom - cellSize * 0.025f
+                )
+
                 paint.shader = LinearGradient(
-                    cell.left,
-                    cell.top,
-                    cell.right,
-                    cell.bottom,
-                    Color.rgb(23, 33, 55),
-                    Color.rgb(11, 18, 33),
+                    inner.left,
+                    inner.top,
+                    inner.right,
+                    inner.bottom,
+                    Color.rgb(22, 32, 53),
+                    Color.rgb(12, 18, 33),
                     Shader.TileMode.CLAMP
                 )
 
                 canvas.drawRoundRect(
-                    cell,
-                    radius,
-                    radius,
+                    inner,
+                    corner * 0.8f,
+                    corner * 0.8f,
                     paint
                 )
-
                 paint.shader = null
+
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth =
-                    (cellSize * 0.008f).coerceAtLeast(1f)
-
-                paint.color = Color.rgb(42, 57, 83)
+                    (cellSize * 0.007f).coerceAtLeast(1f)
+                paint.color = Color.rgb(40, 55, 82)
 
                 canvas.drawRoundRect(
-                    cell,
-                    radius,
-                    radius,
+                    inner,
+                    corner * 0.8f,
+                    corner * 0.8f,
                     paint
                 )
+                paint.style = Paint.Style.FILL
             }
         }
 
-        // Объёмные цветные блоки.
+        // Объёмные блоки.
         for (block in blocks) {
-            val inset = cellSize * 0.075f
+            val inset = cellSize * 0.085f
 
-            val rect = RectF(
-                block.currentX + inset,
-                block.currentY + inset,
-                block.currentX + cellSize - inset,
-                block.currentY + cellSize - inset
+            val left = block.currentX + inset
+            val top = block.currentY + inset
+            val right = block.currentX + cellSize - inset
+            val bottom = block.currentY + cellSize - inset
+            val base = block.colorResId
+
+            // Тень под блоком.
+            paint.shader = null
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(145, 0, 0, 0)
+            paint.setShadowLayer(
+                cellSize * 0.075f,
+                0f,
+                depth * 0.55f,
+                Color.argb(180, 0, 0, 0)
             )
 
-            val radius = cellSize * 0.17f
-
+            canvas.drawRoundRect(
+                RectF(left, top, right, bottom),
+                corner,
+                corner,
+                paint
+            )
             paint.clearShadowLayer()
-            paint.style = Paint.Style.FILL
+
+            // Передняя грань.
+            drawPolygon(
+                canvas,
+                floatArrayOf(
+                    left, bottom - depth,
+                    right, bottom - depth,
+                    right, bottom,
+                    left, bottom
+                ),
+                shadeColor(base, 0.42f)
+            )
+
+            // Правая боковая грань.
+            drawPolygon(
+                canvas,
+                floatArrayOf(
+                    right - depth * 0.45f, top - depth,
+                    right, top - depth * 0.55f,
+                    right, bottom,
+                    right - depth * 0.45f, bottom - depth
+                ),
+                shadeColor(base, 0.55f)
+            )
+
+            // Верхняя грань.
+            val topFace = RectF(
+                left,
+                top - depth,
+                right - depth * 0.45f,
+                bottom - depth
+            )
 
             paint.shader = LinearGradient(
-                rect.left,
-                rect.top,
-                rect.right,
-                rect.bottom,
-                shadeColor(block.colorResId, 1.24f),
-                shadeColor(block.colorResId, 0.68f),
+                topFace.left,
+                topFace.top,
+                topFace.right,
+                topFace.bottom,
+                shadeColor(base, 1.38f),
+                shadeColor(base, 0.88f),
                 Shader.TileMode.CLAMP
             )
 
             canvas.drawRoundRect(
-                rect,
-                radius,
-                radius,
+                topFace,
+                corner,
+                corner,
                 paint
             )
-
             paint.shader = null
 
-            // Светлая окантовка блока.
+            // Светлая фаска.
             paint.style = Paint.Style.STROKE
             paint.strokeWidth =
-                (cellSize * 0.018f).coerceAtLeast(1.2f)
-
-            paint.color =
-                shadeColor(block.colorResId, 1.38f)
+                (cellSize * 0.014f).coerceAtLeast(1f)
+            paint.color = Color.argb(200, 255, 255, 255)
 
             canvas.drawRoundRect(
-                rect,
-                radius,
-                radius,
+                topFace,
+                corner,
+                corner,
                 paint
             )
-
-            // Верхний блик.
             paint.style = Paint.Style.FILL
-            paint.color = Color.argb(48, 255, 255, 255)
 
+            // Глянцевый блик.
             val highlight = RectF(
-                rect.left + cellSize * 0.055f,
-                rect.top + cellSize * 0.045f,
-                rect.right - cellSize * 0.055f,
-                rect.top + cellSize * 0.15f
+                topFace.left + cellSize * 0.07f,
+                topFace.top + cellSize * 0.035f,
+                topFace.right - cellSize * 0.11f,
+                topFace.top + cellSize * 0.105f
             )
 
+            paint.color = Color.argb(75, 255, 255, 255)
             canvas.drawRoundRect(
                 highlight,
-                cellSize * 0.06f,
-                cellSize * 0.06f,
+                cellSize * 0.04f,
+                cellSize * 0.04f,
                 paint
             )
 
-            drawArrow(canvas, block)
+            // Цветная светящаяся кромка.
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth =
+                (cellSize * 0.012f).coerceAtLeast(1f)
+            paint.color = shadeColor(base, 1.55f)
+
+            canvas.drawRoundRect(
+                topFace,
+                corner,
+                corner,
+                paint
+            )
+            paint.style = Paint.Style.FILL
+
+            // Стрелка на верхней поверхности.
+            drawArrow3D(
+                canvas,
+                block.currentX + cellSize / 2f - depth * 0.2f,
+                block.currentY + cellSize / 2f - depth,
+                cellSize * 0.23f,
+                block.direction
+            )
         }
 
         paint.shader = null
@@ -758,72 +831,103 @@ class ColorPuzzleView @JvmOverloads constructor(
         color: Int,
         factor: Float
     ): Int {
-        val red =
-            (Color.red(color) * factor).toInt().coerceIn(0, 255)
-
-        val green =
-            (Color.green(color) * factor).toInt().coerceIn(0, 255)
-
-        val blue =
+        return Color.rgb(
+            (Color.red(color) * factor).toInt().coerceIn(0, 255),
+            (Color.green(color) * factor).toInt().coerceIn(0, 255),
             (Color.blue(color) * factor).toInt().coerceIn(0, 255)
-
-        return Color.rgb(red, green, blue)
+        )
     }
 
-    // Белые стрелки с мягкой тенью.
-    private fun drawArrow(
+    private fun drawPolygon(
         canvas: Canvas,
-        block: Cell
+        points: FloatArray,
+        color: Int
     ) {
-        val cx = block.currentX + cellSize / 2f
-        val cy = block.currentY + cellSize / 2f
+        val path = android.graphics.Path().apply {
+            moveTo(points[0], points[1])
 
-        val len = cellSize * 0.23f
-        val head = cellSize * 0.11f
-
-        var startX = cx
-        var startY = cy
-        var endX = cx
-        var endY = cy
-
-        when (block.direction) {
-            Direction.UP -> {
-                startY = cy + len
-                endY = cy - len
+            var i = 2
+            while (i < points.size) {
+                lineTo(points[i], points[i + 1])
+                i += 2
             }
 
-            Direction.DOWN -> {
-                startY = cy - len
-                endY = cy + len
-            }
-
-            Direction.LEFT -> {
-                startX = cx + len
-                endX = cx - len
-            }
-
-            Direction.RIGHT -> {
-                startX = cx - len
-                endX = cx + len
-            }
+            close()
         }
 
         paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.color = color
+        paint.clearShadowLayer()
 
-        paint.setShadowLayer(
-            cellSize * 0.035f,
-            0f,
-            0f,
-            Color.BLACK
-        )
+        canvas.drawPath(path, paint)
+    }
 
-        paint.color = arrowColor
+    private fun drawArrow3D(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        length: Float,
+        direction: Direction
+    ) {
+        val head = length * 0.43f
+
+        var dx = 0f
+        var dy = 0f
+
+        when (direction) {
+            Direction.UP -> dy = -1f
+            Direction.DOWN -> dy = 1f
+            Direction.LEFT -> dx = -1f
+            Direction.RIGHT -> dx = 1f
+        }
+
+        val startX = cx - dx * length
+        val startY = cy - dy * length
+        val endX = cx + dx * length
+        val endY = cy + dy * length
+
+        val sideX = -dy
+        val sideY = dx
+
+        paint.shader = null
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth =
-            (cellSize * 0.055f).coerceAtLeast(2f)
-
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
+
+        // Тёмная подложка стрелки.
+        paint.strokeWidth =
+            (length * 0.34f).coerceAtLeast(2f)
+        paint.color = Color.argb(180, 0, 0, 0)
+
+        canvas.drawLine(
+            startX + 1f,
+            startY + 2f,
+            endX + 1f,
+            endY + 2f,
+            paint
+        )
+
+        canvas.drawLine(
+            endX,
+            endY,
+            endX - dx * head + sideX * head,
+            endY - dy * head + sideY * head,
+            paint
+        )
+
+        canvas.drawLine(
+            endX,
+            endY,
+            endX - dx * head - sideX * head,
+            endY - dy * head - sideY * head,
+            paint
+        )
+
+        // Белая поверхность стрелки.
+        paint.strokeWidth =
+            (length * 0.23f).coerceAtLeast(2f)
+        paint.color = Color.WHITE
 
         canvas.drawLine(
             startX,
@@ -833,62 +937,24 @@ class ColorPuzzleView @JvmOverloads constructor(
             paint
         )
 
-        when (block.direction) {
-            Direction.UP -> {
-                canvas.drawLine(
-                    endX, endY,
-                    endX - head, endY + head,
-                    paint
-                )
-                canvas.drawLine(
-                    endX, endY,
-                    endX + head, endY + head,
-                    paint
-                )
-            }
+        canvas.drawLine(
+            endX,
+            endY,
+            endX - dx * head + sideX * head,
+            endY - dy * head + sideY * head,
+            paint
+        )
 
-            Direction.DOWN -> {
-                canvas.drawLine(
-                    endX, endY,
-                    endX - head, endY - head,
-                    paint
-                )
-                canvas.drawLine(
-                    endX, endY,
-                    endX + head, endY - head,
-                    paint
-                )
-            }
+        canvas.drawLine(
+            endX,
+            endY,
+            endX - dx * head - sideX * head,
+            endY - dy * head - sideY * head,
+            paint
+        )
 
-            Direction.LEFT -> {
-                canvas.drawLine(
-                    endX, endY,
-                    endX + head, endY - head,
-                    paint
-                )
-                canvas.drawLine(
-                    endX, endY,
-                    endX + head, endY + head,
-                    paint
-                )
-            }
-
-            Direction.RIGHT -> {
-                canvas.drawLine(
-                    endX, endY,
-                    endX - head, endY - head,
-                    paint
-                )
-                canvas.drawLine(
-                    endX, endY,
-                    endX - head, endY + head,
-                    paint
-                )
-            }
-        }
-
-        paint.clearShadowLayer()
         paint.strokeCap = Paint.Cap.BUTT
+        paint.strokeJoin = Paint.Join.MITER
         paint.style = Paint.Style.FILL
     }
 
