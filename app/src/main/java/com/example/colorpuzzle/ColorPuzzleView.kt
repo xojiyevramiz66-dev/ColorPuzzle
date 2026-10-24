@@ -99,9 +99,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     init {
         isHapticFeedbackEnabled = true
-        // ВНИМАНИЕ: Загружаем 102-й уровень для проверки угловых стрелок!
-        // Позже поменяй на loadLevel(1)
-        loadLevel(102) 
+        loadLevel(1)
     }
 
     // =====================================================================
@@ -582,7 +580,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun drawArrow(canvas: Canvas, cx: Float, cy: Float, length: Float, directions: List<Direction>, alpha: Int) {
         arrowPaint.shader = null
         arrowPaint.color = applyAlpha(arrowColor, alpha)
-        // Делаем линию чуть тоньше, чтобы она смотрелась изящнее
         arrowPaint.strokeWidth = (length * 0.28f).coerceAtLeast(3f)
         arrowPaint.strokeCap = Paint.Cap.ROUND
         arrowPaint.strokeJoin = Paint.Join.ROUND
@@ -621,8 +618,9 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val isRight = dir == Direction.CORNER_TOP_RIGHT || dir == Direction.CORNER_BOTTOM_RIGHT
                 val isBottom = dir == Direction.CORNER_BOTTOM_LEFT || dir == Direction.CORNER_BOTTOM_RIGHT
 
-                val r = length * 0.6f
+                val r = length * 0.7f
                 
+                // Точка старта (хвост)
                 val tailX = if (isRight) cx - r else cx + r
                 val tailY = if (isBottom) cy - r else cy + r
                 
@@ -630,24 +628,25 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val cornerX = if (isRight) cx + r else cx - r
                 val cornerY = if (isBottom) cy + r else cy - r
                 
-                // ВАЖНО: Линия должна идти прямо до кончика наконечника, 
-                // чтобы не было разрыва. Наконечник перекроет конец линии.
+                // Точка наконечника
                 val tipX = if (isRight) cx + r else cx - r
                 val tipY = if (isBottom) cy + r else cy - r
 
-                // Рисуем монолитную дугу
                 arrowPath.reset()
                 arrowPath.moveTo(tailX, tailY)
                 arrowPath.lineTo(cornerX, cornerY)
-                arrowPath.lineTo(tipX, tipY)
+                
+                // Обрезаем линию, чтобы наконечник встал идеально
+                val lineEndX = tipX - (if (isRight) headSize * 0.6f else -headSize * 0.6f)
+                val lineEndY = tipY - (if (isBottom) headSize * 0.6f else -headSize * 0.6f)
+                arrowPath.lineTo(lineEndX, lineEndY)
                 
                 arrowPaint.style = Paint.Style.STROKE
                 canvas.drawPath(arrowPath, arrowPaint)
 
-                // Рисуем наконечник
-                val dirX = if (isRight) 1f else -1f
+                // Наконечник строго по оси Y (вверх или вниз), так как последняя линия идет по вертикали
                 val dirY = if (isBottom) 1f else -1f
-                drawArrowHead(canvas, tipX, tipY, dirX, dirY, headSize)
+                drawArrowHead(canvas, tipX, tipY, 0f, dirY, headSize)
                 
             } else {
                 arrowPaint.style = Paint.Style.STROKE
@@ -662,7 +661,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             }
         }
 
-        // СБРОС ТЕНИ, чтобы не влиять на другие элементы
+        // СБРОС ТЕНИ
         arrowPaint.clearShadowLayer()
         arrowPaint.style = Paint.Style.FILL
         arrowPaint.strokeCap = Paint.Cap.BUTT
