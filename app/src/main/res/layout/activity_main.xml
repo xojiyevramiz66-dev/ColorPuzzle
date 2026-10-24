@@ -34,74 +34,77 @@
         android:textSize="10sp"
         android:textStyle="bold" />
 
-    <!-- Панель уровня (теперь на всю ширину) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:background="@drawable/panel_bg"
         android:padding="16dp">
 
-        <TextView
-            android:id="@+id/levelCaption"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="ТЕКУЩИЙ УРОВЕНЬ"
-            android:textColor="#8996B5"
-            android:textSize="10sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvLevel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:text="Уровень 1"
-            android:textColor="#F5F7FF"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <!-- Панель ходов и группы -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <TextView
-            android:id="@+id/movesTextView"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:gravity="start"
-            android:text="Ходы: 0 / 0"
-            android:textColor="#F5F7FF"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/colorGroupTextView"
+            <TextView
+                android:id="@+id/levelCaption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ТЕКУЩИЙ УРОВЕНЬ"
+                android:textColor="#8996B5"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvLevel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="Уровень 1"
+                android:textColor="#F5F7FF"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="42dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="16dp"
+            android:background="#2A3550" />
+
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="#2A3550"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:text="Группа 1"
-            android:textColor="#FFD700"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
+            android:orientation="vertical"
+            android:gravity="end">
+
+            <TextView
+                android:id="@+id/livesCaption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ЖИЗНИ"
+                android:textColor="#8996B5"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvLives"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="❤️❤️❤️"
+                android:textSize="18sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <TextView
         android:id="@+id/hintText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="17dp"
         android:layout_marginBottom="8dp"
         android:gravity="center"
         android:text="УБИРАЙ СТРЕЛКИ, КОТОРЫМ НИЧТО НЕ МЕШАЕТ"
@@ -114,7 +117,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:contentDescription="Игровое поле"
+        android:contentDescription="Игровое поле с цветными блоками и стрелками"
         android:importantForAccessibility="yes" />
 
     <Button
