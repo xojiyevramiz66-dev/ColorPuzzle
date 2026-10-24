@@ -9,7 +9,11 @@ OUTPUT = ROOT / "app" / "src" / "main" / "assets" / "levels.dat"
 MAX_LEVEL = 100_000
 SEED_BASE = 20261024
 
-# Направления, совместимые с логикой Android-игры.
+# Q — вправо, затем вниз.
+# W — вниз, затем влево.
+CURVE_RIGHT_DOWN = (2, 0)
+CURVE_DOWN_LEFT = (0, 2)
+
 SYMBOL_DIRECTIONS = {
     "U": ((0, -1),),
     "D": ((0, 1),),
@@ -17,6 +21,8 @@ SYMBOL_DIRECTIONS = {
     "R": ((1, 0),),
     "V": ((0, -1), (0, 1)),
     "B": ((-1, 0), (1, 0)),
+    "Q": (CURVE_RIGHT_DOWN,),
+    "W": (CURVE_DOWN_LEFT,),
 }
 
 ALL_DIRECTIONS = tuple(
@@ -29,7 +35,6 @@ ALL_DIRECTIONS = tuple(
 
 
 def board_size(level: int) -> tuple[int, int]:
-    """Размеры доски соответствуют calculateBoardSize() в Kotlin."""
     stage = (max(1, level) - 1) // 5
 
     for first in range(4, 11):
@@ -44,7 +49,6 @@ def board_size(level: int) -> tuple[int, int]:
 
 
 def density_for_level(level: int) -> float:
-    """Плотность блоков увеличивается по мере прохождения игры."""
     if level <= 1_000:
         return 0.60 + 0.10 * ((level - 1) / 999)
 
@@ -68,7 +72,24 @@ def ray_clear(
     cols: int,
     rows: int,
 ) -> bool:
-    """Проверяет, свободен ли путь до границы доски."""
+    """Проверяет свободный прямой или изогнутый маршрут."""
+
+    if direction == CURVE_RIGHT_DOWN:
+        # Q: вправо по строке, затем вниз по правому краю.
+        return not any(
+            (ox > x and oy == y)
+            or (ox == cols - 1 and oy > y)
+            for ox, oy in occupied
+        )
+
+    if direction == CURVE_DOWN_LEFT:
+        # W: вниз по столбцу, затем влево по нижнему краю.
+        return not any(
+            (ox == x and oy > y)
+            or (oy == rows - 1 and ox < x)
+            for ox, oy in occupied
+        )
+
     dx, dy = direction
     x += dx
     y += dy
@@ -162,7 +183,10 @@ def generate_level(level: int) -> str:
         choices = [
             symbol
             for symbol, directions in SYMBOL_DIRECTIONS.items()
-            if any(direction in free_directions for direction in directions)
+            if any(
+                direction in free_directions
+                for direction in directions
+            )
         ]
 
         if not choices:
@@ -170,7 +194,16 @@ def generate_level(level: int) -> str:
                 f"Не найден доступный ход на уровне {level}"
             )
 
-        symbol = rng.choice(choices)
+        # Изогнутые стрелки появляются, когда их маршрут свободен.
+        curve_choices = [
+            symbol for symbol in choices
+            if symbol in ("Q", "W")
+        ]
+
+        symbol = rng.choice(
+            curve_choices if curve_choices else choices
+        )
+
         grid[y * cols + x] = symbol
 
         remaining.remove((x, y))
@@ -197,15 +230,24 @@ def generate_level(level: int) -> str:
 def main() -> None:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 
+    total_curves = {"Q": 0, "W": 0}
+
     with OUTPUT.open(
         "w",
         encoding="ascii",
         newline="\n",
     ) as output:
         for level in range(1, MAX_LEVEL + 1):
-            output.write(generate_level(level) + "\n")
+            record = generate_level(level)
+            output.write(record + "\n")
+
+            grid = record.split("|", 3)[3]
+            total_curves["Q"] += grid.count("Q")
+            total_curves["W"] += grid.count("W")
 
     print(f"Создано уровней: {MAX_LEVEL}")
+    print(f"Стрелок Q (↴): {total_curves['Q']}")
+    print(f"Стрелок W (↵): {total_curves['W']}")
     print(f"Файл: {OUTPUT}")
 
 
