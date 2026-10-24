@@ -28,20 +28,21 @@ class ColorPuzzleView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     private enum class Direction(val dx: Int, val dy: Int) {
-        UP(0, -1), DOWN(0, 1), LEFT(-1, 0), RIGHT(1, 0),
-        
-        // Изогнутые (X и Y координаты)
-        CORNER_TOP_LEFT(-1, -1),    
-        CORNER_TOP_RIGHT(1, -1),    
-        CORNER_BOTTOM_LEFT(-1, 1),  
-        CORNER_BOTTOM_RIGHT(1, 1);  
+        UP(0, -1),
+        DOWN(0, 1),
+        LEFT(-1, 0),
+        RIGHT(1, 0),
+        CORNER_TOP_LEFT(-1, -1),
+        CORNER_TOP_RIGHT(1, -1),
+        CORNER_BOTTOM_LEFT(-1, 1),
+        CORNER_BOTTOM_RIGHT(1, 1)
     }
 
     private data class Cell(
         val id: Int,
         val gridX: Int,
         val gridY: Int,
-        val directions: List<Direction>, 
+        val directions: List<Direction>,
         val colorResId: Int,
         var currentX: Float = 0f,
         var currentY: Float = 0f,
@@ -66,11 +67,11 @@ class ColorPuzzleView @JvmOverloads constructor(
     private val historyStack = Stack<String>()
     private var lastDifficultyMetrics = DifficultyMetrics(0, 0, 0)
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+    private val paint =
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+
     private val blockPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
-    
-    // Контуры для стрелок
     private val arrowPath = Path()
 
     private val blocks = mutableListOf<Cell>()
@@ -102,24 +103,30 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    // =====================================================================
-    // Геометрия доски и уровни
-    // =====================================================================
+    // ================================================================
+    // Размер доски и уровни
+    // ================================================================
 
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
         var stage = (level.coerceAtLeast(1) - 1) / 5
+
         for (first in 4..10) {
             val stagesInRow = 11 - first
+
             if (stage < stagesInRow) {
                 return first to (first + stage)
             }
+
             stage -= stagesInRow
         }
+
         return 10 to 10
     }
 
     private fun calculateDensity(level: Int): Float {
-        val progress = ((level.coerceAtLeast(1) - 1) / 80f).coerceIn(0f, 1f)
+        val progress =
+            ((level.coerceAtLeast(1) - 1) / 80f).coerceIn(0f, 1f)
+
         return 0.45f + progress * 0.45f
     }
 
@@ -155,26 +162,34 @@ class ColorPuzzleView @JvmOverloads constructor(
         loadLevel(1)
     }
 
-    // =====================================================================
-    // Сериализация
-    // =====================================================================
+    // ================================================================
+    // Сохранение и восстановление
+    // ================================================================
 
     fun exportState(): String {
         val root = JSONObject()
+
         root.put("level", currentLevel)
         root.put("cols", cols)
         root.put("rows", rows)
 
         val array = JSONArray()
+
         blocks.forEach { block ->
-            array.put(JSONObject().apply {
-                put("id", block.id)
-                put("x", block.gridX)
-                put("y", block.gridY)
-                put("directions", block.directions.joinToString(",") { it.name })
-                put("color", block.colorResId)
-            })
+            array.put(
+                JSONObject().apply {
+                    put("id", block.id)
+                    put("x", block.gridX)
+                    put("y", block.gridY)
+                    put(
+                        "directions",
+                        block.directions.joinToString(",") { it.name }
+                    )
+                    put("color", block.colorResId)
+                }
+            )
         }
+
         root.put("blocks", array)
         return root.toString()
     }
@@ -182,13 +197,20 @@ class ColorPuzzleView @JvmOverloads constructor(
     fun restoreState(state: String): Boolean {
         return try {
             val root = JSONObject(state)
+
             val savedLevel = root.getInt("level")
             val savedCols = root.getInt("cols")
             val savedRows = root.getInt("rows")
 
             if (savedLevel != currentLevel) return false
+
             val expectedSize = calculateBoardSize(savedLevel)
-            if (savedCols != expectedSize.first || savedRows != expectedSize.second) return false
+
+            if (savedCols != expectedSize.first ||
+                savedRows != expectedSize.second
+            ) {
+                return false
+            }
 
             val array = root.getJSONArray("blocks")
             val restored = mutableListOf<Cell>()
@@ -197,18 +219,39 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
+
                 val id = item.getInt("id")
                 val x = item.getInt("x")
                 val y = item.getInt("y")
-                
-                val dirString = item.getString("directions")
-                val directions = dirString.split(",").map { Direction.valueOf(it) }
+                val directionText = item.getString("directions")
+                val directions = directionText.split(",").map {
+                    Direction.valueOf(it)
+                }
                 val color = item.getInt("color")
 
-                if (id < 1 || x !in 0 until savedCols || y !in 0 until savedRows) return false
-                if (!ids.add(id) || !positions.add(x to y)) return false
+                if (id < 1 ||
+                    x !in 0 until savedCols ||
+                    y !in 0 until savedRows ||
+                    directions.isEmpty()
+                ) {
+                    return false
+                }
 
-                restored.add(Cell(id, x, y, directions, color, scale = 1f, alpha = 255))
+                if (!ids.add(id) || !positions.add(x to y)) {
+                    return false
+                }
+
+                restored.add(
+                    Cell(
+                        id = id,
+                        gridX = x,
+                        gridY = y,
+                        directions = directions,
+                        colorResId = color,
+                        scale = 1f,
+                        alpha = 255
+                    )
+                )
             }
 
             runningAnimator?.cancel()
@@ -221,6 +264,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             blocks.clear()
             blocks.addAll(restored)
+
             lastDifficultyMetrics = measureDifficulty(blocks)
 
             updateBoardGeometry(width, height)
@@ -234,20 +278,30 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     fun undoMove(): Boolean {
-        if (historyStack.isEmpty() || animatingBlockId != null) return false
+        if (historyStack.isEmpty() || animatingBlockId != null) {
+            return false
+        }
+
         val previousState = historyStack.pop()
+
         if (!restoreState(previousState)) {
             historyStack.push(previousState)
             return false
         }
+
         return true
     }
 
-    // =====================================================================
-    // Генерация уровня
-    // =====================================================================
+    // ================================================================
+    // Логика направления и препятствий
+    // ================================================================
 
-    private fun createCell(id: Int, x: Int, y: Int, dirs: List<Direction>) = Cell(
+    private fun createCell(
+        id: Int,
+        x: Int,
+        y: Int,
+        dirs: List<Direction>
+    ) = Cell(
         id = id,
         gridX = x,
         gridY = y,
@@ -257,34 +311,102 @@ class ColorPuzzleView @JvmOverloads constructor(
         alpha = 255
     )
 
-    private fun isRayBlocked(candidateX: Int, candidateY: Int, dir: Direction, others: List<Cell>): Boolean {
-        return others.any { other ->
-            when (dir) {
-                Direction.UP, Direction.CORNER_TOP_LEFT, Direction.CORNER_TOP_RIGHT -> 
-                    other.gridX == candidateX && other.gridY < candidateY
-                Direction.DOWN, Direction.CORNER_BOTTOM_LEFT, Direction.CORNER_BOTTOM_RIGHT -> 
-                    other.gridX == candidateX && other.gridY > candidateY
-                Direction.LEFT, Direction.CORNER_TOP_LEFT, Direction.CORNER_BOTTOM_LEFT -> 
-                    other.gridY == candidateY && other.gridX < candidateX
-                Direction.RIGHT, Direction.CORNER_TOP_RIGHT, Direction.CORNER_BOTTOM_RIGHT -> 
-                    other.gridY == candidateY && other.gridX > candidateX
+    private fun isStraightRayBlocked(
+        candidateX: Int,
+        candidateY: Int,
+        dir: Direction,
+        others: List<Cell>
+    ): Boolean {
+        return when (dir) {
+            Direction.UP ->
+                others.any {
+                    it.gridX == candidateX && it.gridY < candidateY
+                }
+
+            Direction.DOWN ->
+                others.any {
+                    it.gridX == candidateX && it.gridY > candidateY
+                }
+
+            Direction.LEFT ->
+                others.any {
+                    it.gridY == candidateY && it.gridX < candidateX
+                }
+
+            Direction.RIGHT ->
+                others.any {
+                    it.gridY == candidateY && it.gridX > candidateX
+                }
+
+            else -> false
+        }
+    }
+
+    private fun isRayBlocked(
+        candidateX: Int,
+        candidateY: Int,
+        dir: Direction,
+        others: List<Cell>
+    ): Boolean {
+        return when (dir) {
+            Direction.UP,
+            Direction.DOWN,
+            Direction.LEFT,
+            Direction.RIGHT -> {
+                isStraightRayBlocked(candidateX, candidateY, dir, others)
+            }
+
+            Direction.CORNER_TOP_LEFT -> {
+                isStraightRayBlocked(candidateX, candidateY, Direction.LEFT, others) ||
+                    isStraightRayBlocked(candidateX, candidateY, Direction.UP, others)
+            }
+
+            Direction.CORNER_TOP_RIGHT -> {
+                isStraightRayBlocked(candidateX, candidateY, Direction.RIGHT, others) ||
+                    isStraightRayBlocked(candidateX, candidateY, Direction.UP, others)
+            }
+
+            Direction.CORNER_BOTTOM_LEFT -> {
+                isStraightRayBlocked(candidateX, candidateY, Direction.LEFT, others) ||
+                    isStraightRayBlocked(candidateX, candidateY, Direction.DOWN, others)
+            }
+
+            Direction.CORNER_BOTTOM_RIGHT -> {
+                isStraightRayBlocked(candidateX, candidateY, Direction.RIGHT, others) ||
+                    isStraightRayBlocked(candidateX, candidateY, Direction.DOWN, others)
             }
         }
     }
 
-    private fun isPathBlocked(candidate: Cell, others: List<Cell>): Boolean {
-        if (candidate.directions.size == 1 && candidate.directions[0].name.startsWith("CORNER")) {
-            return candidate.directions.all { dir ->
-                isRayBlocked(candidate.gridX, candidate.gridY, dir, others)
-            }
-        }
-        return candidate.directions.all { dir ->
-            isRayBlocked(candidate.gridX, candidate.gridY, dir, others)
+    private fun isPathBlocked(
+        candidate: Cell,
+        others: List<Cell>
+    ): Boolean {
+        if (candidate.directions.isEmpty()) return true
+
+        val blockers = others.filter { it.id != candidate.id }
+
+        // Стрелка с двумя направлениями может выйти по любому
+        // свободному направлению. Поэтому блокируется, только
+        // если заблокированы все её направления.
+        return candidate.directions.all { direction ->
+            isRayBlocked(
+                candidate.gridX,
+                candidate.gridY,
+                direction,
+                blockers
+            )
         }
     }
 
-    private fun isAvailable(block: Cell, source: List<Cell>): Boolean {
-        return !isPathBlocked(block, source.filter { it.id != block.id })
+    private fun isAvailable(
+        block: Cell,
+        source: List<Cell>
+    ): Boolean {
+        return !isPathBlocked(
+            block,
+            source.filter { it.id != block.id }
+        )
     }
 
     private fun countAvailableMoves(source: List<Cell>): Int {
@@ -293,20 +415,31 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
+
         while (remaining.isNotEmpty()) {
-            val removable = remaining.firstOrNull { isAvailable(it, remaining) } ?: return false
+            val removable = remaining.firstOrNull {
+                isAvailable(it, remaining)
+            } ?: return false
+
             remaining.remove(removable)
         }
+
         return true
     }
 
-    private fun createHardLevel(requestedCount: Int, level: Int): MutableList<Cell> {
+    // ================================================================
+    // Генерация уровней
+    // ================================================================
+
+    private fun createHardLevel(
+        requestedCount: Int,
+        level: Int
+    ): MutableList<Cell> {
         val target = requestedCount.coerceIn(1, cols * rows - 1)
 
         val desiredMoves = when {
             level <= 3 -> 3
-            level <= 10 -> 2
-            else -> 2 
+            else -> 2
         }
 
         val desiredDepth = when {
@@ -320,14 +453,17 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         val attempts = if (target >= 50) 300 else 250
 
-        for (attempt in 0 until attempts) {
+        repeat(attempts) {
             val candidate = createRandomBranchingAttempt(target, level)
-            if (candidate.size != target) continue
-            if (!isSolvable(candidate)) continue
+
+            if (candidate.size != target) return@repeat
+            if (!isSolvable(candidate)) return@repeat
 
             val metrics = measureDifficulty(candidate)
-            val movePenalty = (metrics.availableMoves - desiredMoves).coerceAtLeast(0) * 15
-            val depthPenalty = abs(metrics.dependencyDepth - desiredDepth) * 5
+            val movePenalty =
+                (metrics.availableMoves - desiredMoves).coerceAtLeast(0) * 15
+            val depthPenalty =
+                abs(metrics.dependencyDepth - desiredDepth) * 5
             val score = movePenalty + depthPenalty + Random.nextInt(0, 5)
 
             if (score < bestScore) {
@@ -335,35 +471,50 @@ class ColorPuzzleView @JvmOverloads constructor(
                 bestLevel = candidate
             }
 
-            if (metrics.availableMoves <= desiredMoves && metrics.dependencyDepth >= desiredDepth) {
+            if (metrics.availableMoves <= desiredMoves &&
+                metrics.dependencyDepth >= desiredDepth
+            ) {
                 bestLevel = candidate
-                break
+                return@repeat
             }
         }
 
         val selected = bestLevel
-        if (selected != null && selected.size == target && isSolvable(selected)) {
+
+        if (selected != null &&
+            selected.size == target &&
+            isSolvable(selected)
+        ) {
             return selected
         }
 
         return createGuaranteedFallback(target)
     }
 
-    private fun createRandomBranchingAttempt(targetCount: Int, level: Int): MutableList<Cell> {
+    private fun createRandomBranchingAttempt(
+        targetCount: Int,
+        level: Int
+    ): MutableList<Cell> {
         val result = mutableListOf<Cell>()
-        val positions = (0 until rows).flatMap { y -> (0 until cols).map { x -> x to y } }.shuffled()
+
+        val positions = (0 until rows)
+            .flatMap { y -> (0 until cols).map { x -> x to y } }
+            .shuffled()
+
         var id = 1
 
         for ((x, y) in positions) {
             if (result.size >= targetCount) break
 
-            val doubleArrowChance = if (level < 50) 0f else when {
+            val doubleArrowChance = when {
+                level < 50 -> 0f
                 level < 70 -> 0.15f
                 level < 90 -> 0.25f
                 else -> 0.35f
             }
-            
-            val cornerArrowChance = if (level < 100) 0f else when {
+
+            val cornerArrowChance = when {
+                level < 100 -> 0f
                 level < 120 -> 0.15f
                 level < 150 -> 0.30f
                 else -> 0.45f
@@ -389,54 +540,79 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             val availableDirections = possibleDirs.filter { dirs ->
                 val candidate = createCell(id, x, y, dirs)
-                !isPathBlocked(candidate, result) || Random.nextFloat() < 0.3f 
+                !isPathBlocked(candidate, result)
             }.shuffled()
 
             if (availableDirections.isNotEmpty()) {
-                val dirs = availableDirections.first()
-                result.add(createCell(id, x, y, dirs))
+                result.add(createCell(id, x, y, availableDirections.first()))
                 id++
             }
         }
+
         return result
     }
 
-    private fun createGuaranteedFallback(targetCount: Int): MutableList<Cell> {
+    private fun createGuaranteedFallback(
+        targetCount: Int
+    ): MutableList<Cell> {
         val result = mutableListOf<Cell>()
         var id = 1
 
+        // Расставляем блоки так, чтобы у каждого был путь наружу.
         for (y in 0 until rows) {
             for (x in 0 until cols) {
                 if (result.size >= targetCount) return result
 
                 val direction = when {
+                    x == 0 -> listOf(Direction.LEFT)
+                    x == cols - 1 -> listOf(Direction.RIGHT)
+                    y == 0 -> listOf(Direction.UP)
+                    y == rows - 1 -> listOf(Direction.DOWN)
                     x % 2 == 0 -> listOf(Direction.LEFT)
                     else -> listOf(Direction.RIGHT)
                 }
-                
+
                 val candidate = createCell(id, x, y, direction)
+
                 if (!isPathBlocked(candidate, result)) {
                     result.add(candidate)
                     id++
                 }
             }
         }
+
         return result
     }
 
-    private fun measureDifficulty(source: List<Cell>): DifficultyMetrics {
-        if (source.isEmpty()) return DifficultyMetrics(0, 0, 0)
+    private fun measureDifficulty(
+        source: List<Cell>
+    ): DifficultyMetrics {
+        if (source.isEmpty()) {
+            return DifficultyMetrics(0, 0, 0)
+        }
 
         val initialMoves = countAvailableMoves(source)
         val depthById = mutableMapOf<Int, Int>()
 
         for (block in source.sortedByDescending { it.id }) {
-            val blockers = source.filter { other -> 
-                other.id > block.id && block.directions.any { dir -> 
-                    isRayBlocked(block.gridX, block.gridY, dir, listOf(other))
-                }
+            val blockers = source.filter { other ->
+                other.id > block.id &&
+                    isRayBlocked(
+                        block.gridX,
+                        block.gridY,
+                        block.directions.first(),
+                        listOf(other)
+                    )
             }
-            depthById[block.id] = if (blockers.isEmpty()) 1 else 1 + (blockers.maxOfOrNull { depthById[it.id] ?: 1 } ?: 0)
+
+            depthById[block.id] =
+                if (blockers.isEmpty()) {
+                    1
+                } else {
+                    1 + (blockers.maxOfOrNull {
+                        depthById[it.id] ?: 1
+                    } ?: 0)
+                }
         }
 
         val depth = depthById.values.maxOrNull() ?: 0
@@ -444,62 +620,104 @@ class ColorPuzzleView @JvmOverloads constructor(
         return DifficultyMetrics(initialMoves, depth, source.size)
     }
 
-    // =====================================================================
-    // Геометрия и отрисовка
-    // =====================================================================
+    // ================================================================
+    // Геометрия доски
+    // ================================================================
 
     private fun updateBoardGeometry(w: Int, h: Int) {
         if (w <= 0 || h <= 0) return
+
         val availableWidth = w * 0.94f
         val availableHeight = h * 0.90f
-        cellSize = min(availableWidth / cols, availableHeight / rows)
+
+        cellSize = min(
+            availableWidth / cols,
+            availableHeight / rows
+        )
+
         offsetX = (w - cellSize * cols) / 2f
         offsetY = (h - cellSize * rows) / 2f
     }
 
     private fun positionBlocks() {
         if (cellSize <= 0f) return
+
         blocks.forEach { block ->
             block.currentX = offsetX + block.gridX * cellSize
             block.currentY = offsetY + block.gridY * cellSize
         }
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+    override fun onSizeChanged(
+        w: Int,
+        h: Int,
+        oldw: Int,
+        oldh: Int
+    ) {
         super.onSizeChanged(w, h, oldw, oldh)
         updateBoardGeometry(w, h)
         positionBlocks()
         invalidate()
     }
 
+    // ================================================================
+    // Отрисовка
+    // ================================================================
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (cellSize <= 0f) return
 
-        val board = RectF(offsetX, offsetY, offsetX + cols * cellSize, offsetY + rows * cellSize)
+        val board = RectF(
+            offsetX,
+            offsetY,
+            offsetX + cols * cellSize,
+            offsetY + rows * cellSize
+        )
 
         paint.shader = null
-        paint.setShadowLayer(cellSize * 0.20f, 0f, cellSize * 0.10f, Color.argb(100, 0, 0, 0))
+        paint.setShadowLayer(
+            cellSize * 0.20f,
+            0f,
+            cellSize * 0.10f,
+            Color.argb(100, 0, 0, 0)
+        )
         paint.style = Paint.Style.FILL
         paint.color = Color.rgb(22, 30, 46)
-        canvas.drawRoundRect(board, cellSize * 0.16f, cellSize * 0.16f, paint)
-        paint.clearShadowLayer()
 
+        canvas.drawRoundRect(
+            board,
+            cellSize * 0.16f,
+            cellSize * 0.16f,
+            paint
+        )
+
+        paint.clearShadowLayer()
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1.4f
         paint.color = Color.rgb(55, 71, 103)
 
         for (col in 0..cols) {
             val x = offsetX + col * cellSize
-            canvas.drawLine(x, offsetY, x, offsetY + rows * cellSize, paint)
+            canvas.drawLine(
+                x, offsetY,
+                x, offsetY + rows * cellSize,
+                paint
+            )
         }
+
         for (row in 0..rows) {
             val y = offsetY + row * cellSize
-            canvas.drawLine(offsetX, y, offsetX + cols * cellSize, y, paint)
+            canvas.drawLine(
+                offsetX, y,
+                offsetX + cols * cellSize, y,
+                paint
+            )
         }
 
         for (block in blocks) {
             val inset = cellSize * 0.08f
+
             val baseLeft = block.currentX + inset
             val baseTop = block.currentY + inset
             val baseRight = block.currentX + cellSize - inset
@@ -507,6 +725,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             val currentWidth = (baseRight - baseLeft) * block.scale
             val currentHeight = (baseBottom - baseTop) * block.scale
+
             val centerX = (baseLeft + baseRight) / 2f
             val centerY = (baseTop + baseBottom) / 2f
 
@@ -518,13 +737,14 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
 
             val shadowAlpha = (60 * (block.alpha / 255f)).toInt()
+
             blockPaint.setShadowLayer(
                 cellSize * 0.14f * block.scale,
                 0f,
                 cellSize * 0.07f * block.scale,
                 Color.argb(shadowAlpha, 0, 0, 0)
             )
-            
+
             blockPaint.style = Paint.Style.FILL
             blockPaint.color = applyAlpha(block.colorResId, block.alpha)
 
@@ -538,7 +758,14 @@ class ColorPuzzleView @JvmOverloads constructor(
             blockPaint.clearShadowLayer()
 
             if (block.alpha > 30) {
-                drawArrow(canvas, centerX, centerY, cellSize * 0.23f * block.scale, block.directions, block.alpha)
+                drawArrow(
+                    canvas,
+                    centerX,
+                    centerY,
+                    cellSize * 0.23f * block.scale,
+                    block.directions,
+                    block.alpha
+                )
             }
         }
 
@@ -548,136 +775,193 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun applyAlpha(color: Int, alpha: Int): Int {
-        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        return Color.argb(
+            alpha,
+            Color.red(color),
+            Color.green(color),
+            Color.blue(color)
+        )
     }
 
-    // Вспомогательный метод для монолитного наконечника
-    private fun drawArrowHead(canvas: Canvas, tipX: Float, tipY: Float, dirX: Float, dirY: Float, headSize: Float) {
+    private fun drawArrowHead(
+        canvas: Canvas,
+        tipX: Float,
+        tipY: Float,
+        dirX: Float,
+        dirY: Float,
+        headSize: Float
+    ) {
         val perpX = -dirY
         val perpY = dirX
-        
+
         val baseX = tipX - dirX * headSize
         val baseY = tipY - dirY * headSize
-        
-        val wingX = headSize * 0.65f
-        val wingY = headSize * 0.65f
 
-        val p1x = baseX + perpX * wingX
-        val p1y = baseY + perpY * wingY
-        val p2x = baseX - perpX * wingX
-        val p2y = baseY - perpY * wingY
+        val wing = headSize * 0.65f
 
         arrowPath.reset()
         arrowPath.moveTo(tipX, tipY)
-        arrowPath.lineTo(p1x, p1y)
-        arrowPath.lineTo(p2x, p2y)
+        arrowPath.lineTo(
+            baseX + perpX * wing,
+            baseY + perpY * wing
+        )
+        arrowPath.lineTo(
+            baseX - perpX * wing,
+            baseY - perpY * wing
+        )
         arrowPath.close()
 
         arrowPaint.style = Paint.Style.FILL
         canvas.drawPath(arrowPath, arrowPaint)
     }
 
-    private fun drawArrow(canvas: Canvas, cx: Float, cy: Float, length: Float, directions: List<Direction>, alpha: Int) {
+    private fun drawArrow(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        length: Float,
+        directions: List<Direction>,
+        alpha: Int
+    ) {
         arrowPaint.shader = null
         arrowPaint.color = applyAlpha(arrowColor, alpha)
         arrowPaint.strokeWidth = (length * 0.32f).coerceAtLeast(3f)
         arrowPaint.strokeCap = Paint.Cap.ROUND
         arrowPaint.strokeJoin = Paint.Join.ROUND
 
-        // ЕДИНАЯ ТЕНЬ ДЛЯ ВСЕЙ СТРЕЛКИ
         arrowPaint.setShadowLayer(
-            length * 0.15f, 
-            length * 0.05f, 
-            length * 0.08f, 
+            length * 0.15f,
+            length * 0.05f,
+            length * 0.08f,
             Color.argb((alpha * 0.4f).toInt(), 0, 0, 0)
         )
 
         val headSize = length * 0.7f
 
-        // 1. Двойная стрелка
         if (directions.size == 2) {
-            val dir1 = directions[0]
-            val dir2 = directions[1]
-            
+            val first = directions[0]
+            val second = directions[1]
+
             arrowPaint.style = Paint.Style.STROKE
-            val startX = cx + dir1.dx * (length - headSize * 0.4f)
-            val startY = cy + dir1.dy * (length - headSize * 0.4f)
-            val endX = cx + dir2.dx * (length - headSize * 0.4f)
-            val endY = cy + dir2.dy * (length - headSize * 0.4f)
+
+            val startX = cx + first.dx * (length - headSize * 0.4f)
+            val startY = cy + first.dy * (length - headSize * 0.4f)
+            val endX = cx + second.dx * (length - headSize * 0.4f)
+            val endY = cy + second.dy * (length - headSize * 0.4f)
+
             canvas.drawLine(startX, startY, endX, endY, arrowPaint)
-            
-            drawArrowHead(canvas, cx + dir1.dx * length, cy + dir1.dy * length, dir1.dx.toFloat(), dir1.dy.toFloat(), headSize)
-            drawArrowHead(canvas, cx + dir2.dx * length, cy + dir2.dy * length, dir2.dx.toFloat(), dir2.dy.toFloat(), headSize)
-            
-        } 
-        // 2. Одиночная стрелка
-        else if (directions.size == 1) {
-            val dir = directions.first()
-            
-            if (dir.name.startsWith("CORNER")) {
-                val isRight = dir == Direction.CORNER_TOP_RIGHT || dir == Direction.CORNER_BOTTOM_RIGHT
-                val isBottom = dir == Direction.CORNER_BOTTOM_LEFT || dir == Direction.CORNER_BOTTOM_RIGHT
+
+            drawArrowHead(
+                canvas,
+                cx + first.dx * length,
+                cy + first.dy * length,
+                first.dx.toFloat(),
+                first.dy.toFloat(),
+                headSize
+            )
+
+            drawArrowHead(
+                canvas,
+                cx + second.dx * length,
+                cy + second.dy * length,
+                second.dx.toFloat(),
+                second.dy.toFloat(),
+                headSize
+            )
+        } else if (directions.size == 1) {
+            val direction = directions.first()
+
+            if (direction.name.startsWith("CORNER")) {
+                val isRight =
+                    direction == Direction.CORNER_TOP_RIGHT ||
+                    direction == Direction.CORNER_BOTTOM_RIGHT
+
+                val isBottom =
+                    direction == Direction.CORNER_BOTTOM_LEFT ||
+                    direction == Direction.CORNER_BOTTOM_RIGHT
 
                 val r = length * 0.7f
-                
+
                 val tailX = if (isRight) cx - r else cx + r
                 val tailY = if (isBottom) cy - r else cy + r
-                
+
                 val tipX = if (isRight) cx + r else cx - r
                 val tipY = if (isBottom) cy + r else cy - r
 
-                val cornerX = if (isRight) cx + r else cx - r
+                val cornerX = tipX
                 val cornerY = if (isBottom) cy - r else cy + r
-                
-                val lineEndX = tipX - (if (isRight) headSize else -headSize) * 0.4f
-                val lineEndY = tipY - (if (isBottom) headSize else -headSize) * 0.4f
 
+                val dirX = if (isRight) 1f else -1f
+                val dirY = if (isBottom) 1f else -1f
+
+                val lineEndX = tipX - dirX * headSize * 0.4f
+                val lineEndY = tipY - dirY * headSize * 0.4f
+
+                // Настоящая Г-образная линия: два прямых сегмента,
+                // а не диагональная линия.
                 arrowPath.reset()
                 arrowPath.moveTo(tailX, tailY)
                 arrowPath.lineTo(cornerX, cornerY)
                 arrowPath.lineTo(lineEndX, lineEndY)
-                
+
                 arrowPaint.style = Paint.Style.STROKE
                 canvas.drawPath(arrowPath, arrowPaint)
 
-                val dirX = if (isRight) 1f else -1f
-                val dirY = if (isBottom) 1f else -1f
-                drawArrowHead(canvas, tipX, tipY, dirX, dirY, headSize)
-                
+                drawArrowHead(
+                    canvas,
+                    tipX,
+                    tipY,
+                    dirX,
+                    dirY,
+                    headSize
+                )
             } else {
                 arrowPaint.style = Paint.Style.STROKE
-                val startX = cx - dir.dx * (length - headSize * 0.4f)
-                val startY = cy - dir.dy * (length - headSize * 0.4f)
-                val endX = cx + dir.dx * (length - headSize * 0.4f)
-                val endY = cy + dir.dy * (length - headSize * 0.4f)
+
+                val startX = cx - direction.dx * (length - headSize * 0.4f)
+                val startY = cy - direction.dy * (length - headSize * 0.4f)
+                val endX = cx + direction.dx * (length - headSize * 0.4f)
+                val endY = cy + direction.dy * (length - headSize * 0.4f)
 
                 canvas.drawLine(startX, startY, endX, endY, arrowPaint)
-                
-                drawArrowHead(canvas, cx + dir.dx * length, cy + dir.dy * length, dir.dx.toFloat(), dir.dy.toFloat(), headSize)
+
+                drawArrowHead(
+                    canvas,
+                    cx + direction.dx * length,
+                    cy + direction.dy * length,
+                    direction.dx.toFloat(),
+                    direction.dy.toFloat(),
+                    headSize
+                )
             }
         }
 
-        // СБРОС ТЕНИ, чтобы не влиять на другие элементы
         arrowPaint.clearShadowLayer()
         arrowPaint.style = Paint.Style.FILL
         arrowPaint.strokeCap = Paint.Cap.BUTT
         arrowPaint.strokeJoin = Paint.Join.MITER
     }
 
-    // =====================================================================
-    // Ввод и анимация
-    // =====================================================================
+    // ================================================================
+    // Обработка нажатий
+    // ================================================================
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> return true
+
             MotionEvent.ACTION_CANCEL -> return true
+
             MotionEvent.ACTION_UP -> {
-                if (cellSize <= 0f || animatingBlockId != null) return true
+                if (cellSize <= 0f || animatingBlockId != null) {
+                    return true
+                }
 
                 val block = blocks.firstOrNull { item ->
-                    event.x >= item.currentX && event.x <= item.currentX + cellSize &&
-                    event.y >= item.currentY && event.y <= item.currentY + cellSize
+                    event.x >= item.currentX &&
+                    event.x <= item.currentX + cellSize &&
+                    event.y >= item.currentY &&
+                    event.y <= item.currentY + cellSize
                 }
 
                 if (block != null) {
@@ -688,6 +972,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                 return true
             }
         }
+
         return true
     }
 
@@ -696,15 +981,29 @@ class ColorPuzzleView @JvmOverloads constructor(
         return true
     }
 
+    // ================================================================
+    // Удаление блока и анимация
+    // ================================================================
+
     private fun evaluateMove(block: Cell) {
-        val freeDirs = block.directions.filter { dir ->
-            !isRayBlocked(block.gridX, block.gridY, dir, blocks.filter { it.id != block.id })
+        if (animatingBlockId != null) return
+
+        val others = blocks.filter { it.id != block.id }
+
+        val freeDirs = block.directions.filter { direction ->
+            !isRayBlocked(
+                block.gridX,
+                block.gridY,
+                direction,
+                others
+            )
         }
 
         if (freeDirs.isEmpty()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 performHapticFeedback(HapticFeedbackConstants.REJECT)
             }
+
             onGameEventListener?.onWrongMove()
             return
         }
@@ -718,56 +1017,111 @@ class ColorPuzzleView @JvmOverloads constructor(
         animatingBlockId = block.id
 
         val distance = maxOf(width, height).toFloat()
-        
         val flightDir = freeDirs.random()
-        
-        var targetX = block.currentX
-        var targetY = block.currentY
-
-        when (flightDir) {
-            Direction.UP, Direction.CORNER_TOP_LEFT, Direction.CORNER_TOP_RIGHT -> targetY -= distance
-            Direction.DOWN, Direction.CORNER_BOTTOM_LEFT, Direction.CORNER_BOTTOM_RIGHT -> targetY += distance
-            Direction.LEFT -> targetX -= distance
-            Direction.RIGHT -> targetX += distance
-        }
 
         val startX = block.currentX
         val startY = block.currentY
 
+        // Для угловой стрелки движение идёт по двум этапам,
+        // чтобы блок не перемещался по диагонали.
+        val corner = flightDir.name.startsWith("CORNER")
+
+        val horizontalDirection = when (flightDir) {
+            Direction.CORNER_TOP_LEFT,
+            Direction.CORNER_BOTTOM_LEFT -> -1
+
+            Direction.CORNER_TOP_RIGHT,
+            Direction.CORNER_BOTTOM_RIGHT -> 1
+
+            Direction.LEFT -> -1
+            Direction.RIGHT -> 1
+            else -> 0
+        }
+
+        val verticalDirection = when (flightDir) {
+            Direction.CORNER_TOP_LEFT,
+            Direction.CORNER_TOP_RIGHT -> -1
+
+            Direction.CORNER_BOTTOM_LEFT,
+            Direction.CORNER_BOTTOM_RIGHT -> 1
+
+            Direction.UP -> -1
+            Direction.DOWN -> 1
+            else -> 0
+        }
+
+        val targetX: Float
+        val targetY: Float
+
+        if (corner) {
+            targetX = startX + horizontalDirection * distance
+            targetY = startY + verticalDirection * distance
+        } else {
+            targetX = startX + horizontalDirection * distance
+            targetY = startY + verticalDirection * distance
+        }
+
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 240
+            duration = 300L
             interpolator = AccelerateInterpolator()
+
             addUpdateListener { animation ->
                 val fraction = animation.animatedValue as Float
-                if (fraction < 0.2f) {
-                    block.scale = 1f - (fraction / 0.2f) * 0.12f
+
+                if (corner) {
+                    // Первый этап — горизонтальный.
+                    // Второй этап — вертикальный.
+                    if (fraction < 0.5f) {
+                        val progress = fraction / 0.5f
+                        block.currentX =
+                            startX + (targetX - startX) * progress
+                        block.currentY = startY
+                    } else {
+                        val progress = (fraction - 0.5f) / 0.5f
+                        block.currentX = targetX
+                        block.currentY =
+                            startY + (targetY - startY) * progress
+                    }
                 } else {
-                    val progress = (fraction - 0.2f) / 0.8f
-                    block.scale = 0.88f + progress * 0.12f
-                    block.currentX = startX + (targetX - startX) * progress
-                    block.currentY = startY + (targetY - startY) * progress
-                    block.alpha = ((1f - progress) * 255).toInt().coerceIn(0, 255)
+                    block.currentX =
+                        startX + (targetX - startX) * fraction
+                    block.currentY =
+                        startY + (targetY - startY) * fraction
                 }
+
+                block.scale = 1f - 0.12f * fraction
+                block.alpha =
+                    ((1f - fraction) * 255).toInt().coerceIn(0, 255)
+
                 invalidate()
             }
+
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     if (runningAnimator !== animation) return
-                    runningAnimator = null
 
-                    if (blocks.remove(block)) {
+                    runningAnimator = null
+                    blocks.remove(block)
+                    animatingBlockId = null
+
+                    invalidate()
+
+                    if (blocks.isEmpty()) {
+                        onGameEventListener?.onLevelCompleted()
+                    } else {
+                        onGameEventListener?.onMoveMade()
+                    }
+                }
+
+                override fun onAnimationCancel(animation: Animator) {
+                    if (runningAnimator === animation) {
+                        runningAnimator = null
                         animatingBlockId = null
-                        invalidate()
-                        if (blocks.isEmpty()) {
-                            onGameEventListener?.onLevelCompleted()
-                        } else {
-                            onGameEventListener?.onMoveMade()
-                        }
                     }
                 }
             })
         }
-        
+
         runningAnimator = animator
         animator.start()
     }
