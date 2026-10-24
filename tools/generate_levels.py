@@ -1,17 +1,19 @@
-
 #!/usr/bin/env python3
-"""Generate 10,000 deterministic, solvable ColorPuzzle levels."""
+"""Generate 100,000 deterministic ColorPuzzle levels."""
 
 from pathlib import Path
 import random
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "app" / "src" / "main" / "assets" / "levels.dat"
-MAX_LEVEL = 10_000
+
+MAX_LEVEL = 100_000
+SEED_BASE = 20261024
 
 
 def board_size(level: int) -> tuple[int, int]:
-    stage = (max(1, level) - 1) // 5
+    """Gradually increase board dimensions from 4x4 to 10x10."""
+    stage = (max(1, level) - 1) // 100
 
     for first in range(4, 11):
         stages_in_row = 11 - first
@@ -24,18 +26,41 @@ def board_size(level: int) -> tuple[int, int]:
     return 10, 10
 
 
+def density_for_level(level: int) -> float:
+    """Make the first 1,000 levels medium difficulty, not easy."""
+    if level <= 1_000:
+        # Medium: 60–70% occupied cells.
+        return 0.60 + 0.10 * ((level - 1) / 999)
+
+    if level <= 10_000:
+        # Above medium: 70–80%.
+        return 0.70 + 0.10 * ((level - 1_001) / 8_999)
+
+    if level <= 50_000:
+        # Hard: 80–88%.
+        return 0.80 + 0.08 * ((level - 10_001) / 39_999)
+
+    if level <= 90_000:
+        # Very hard: 88–94%.
+        return 0.88 + 0.06 * ((level - 50_001) / 39_999)
+
+    # Extreme: 94–97%, capped so at least one empty cell remains.
+    return 0.94 + 0.03 * ((level - 90_001) / 9_999)
+
+
 def generate_level(level: int) -> str:
     cols, rows = board_size(level)
     total = cols * rows
 
-    density = 0.45 + min((level - 1) / 80.0, 1.0) * 0.45
-    target = min(total - 1, int(total * density))
-    target = max(1, target)
+    density = density_for_level(level)
+    target = int(total * density)
+    target = max(1, min(total - 1, target))
 
-    rng = random.Random(20261024 + level * 1009)
+    rng = random.Random(SEED_BASE + level * 1009)
 
-    # Каждый столбец использует одно вертикальное направление.
-    # Это гарантирует возможность убрать блоки по порядку.
+    # Compatibility with the existing game:
+    # every occupied cell in a column has the same U or D direction.
+    # This gives a predictable removal order under the existing rules.
     directions = [
         rng.choice(("U", "D"))
         for _ in range(cols)
@@ -62,6 +87,7 @@ def main() -> None:
             file.write(generate_level(level) + "\n")
 
     print(f"Generated {MAX_LEVEL} levels: {OUTPUT}")
+    print(f"Output size: {OUTPUT.stat().st_size:,} bytes")
 
 
 if __name__ == "__main__":
