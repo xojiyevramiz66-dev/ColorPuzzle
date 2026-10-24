@@ -1,3 +1,4 @@
+
 package com.example.colorpuzzle
 
 import android.animation.Animator
@@ -35,8 +36,11 @@ class ColorPuzzleView @JvmOverloads constructor(
         CORNER_TOP_RIGHT(1, -1),
         CORNER_BOTTOM_LEFT(-1, 1),
         CORNER_BOTTOM_RIGHT(1, 1),
-        CURVE_RIGHT_DOWN(0, 0),
-        CURVE_DOWN_LEFT(0, 0)
+
+        // Графические формы стрелок. Реальное направление
+        // движения задаётся в movementVector().
+        CURVE_RIGHT_DOWN(0, 0), // ↴ движется вниз
+        CURVE_DOWN_LEFT(0, 0)   // ↵ движется влево
     }
 
     private data class Cell(
@@ -112,6 +116,19 @@ class ColorPuzzleView @JvmOverloads constructor(
     init {
         isHapticFeedbackEnabled = true
         loadLevel(1)
+    }
+
+    /**
+     * Преобразует графическую форму стрелки в направление движения.
+     * ↴ -> вниз
+     * ↵ -> влево
+     */
+    private fun movementVector(direction: Direction): Pair<Int, Int> {
+        return when (direction) {
+            Direction.CURVE_RIGHT_DOWN -> 0 to 1
+            Direction.CURVE_DOWN_LEFT -> -1 to 0
+            else -> direction.dx to direction.dy
+        }
     }
 
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
@@ -292,14 +309,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             val savedRows = root.getInt("rows")
 
             if (savedLevel != currentLevel) return false
-
-            if (savedCols != cols || savedRows != rows) {
-                return false
-            }
-
-            if (savedCols !in 1..10 || savedRows !in 1..10) {
-                return false
-            }
+            if (savedCols != cols || savedRows != rows) return false
+            if (savedCols !in 1..10 || savedRows !in 1..10) return false
 
             val array = root.getJSONArray("blocks")
             val restored = mutableListOf<Cell>()
@@ -330,10 +341,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                     return false
                 }
 
-                if (
-                    !ids.add(id) ||
-                    !positions.add(x to y)
-                ) {
+                if (!ids.add(id) || !positions.add(x to y)) {
                     return false
                 }
 
@@ -370,10 +378,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     fun undoMove(): Boolean {
-        if (
-            historyStack.isEmpty() ||
-            animatingBlockId != null
-        ) {
+        if (historyStack.isEmpty() || animatingBlockId != null) {
             return false
         }
 
@@ -402,57 +407,49 @@ class ColorPuzzleView @JvmOverloads constructor(
         alpha = 255
     )
 
-    // Проверяет препятствия на прямых и составных маршрутах.
+    /**
+     * Проверяет препятствия вдоль фактического направления движения.
+     * Для Q учитывается только движение вниз.
+     * Для W учитывается только движение влево.
+     */
     private fun isRayBlocked(
         candidateX: Int,
         candidateY: Int,
         dir: Direction,
         others: List<Cell>
     ): Boolean {
+        val (moveDx, moveDy) = movementVector(dir)
+
         return others.any { other ->
             val dx = other.gridX - candidateX
             val dy = other.gridY - candidateY
 
-            when (dir) {
-                Direction.UP ->
+            when {
+                moveDx == 0 && moveDy < 0 ->
                     dx == 0 && dy < 0
 
-                Direction.DOWN ->
+                moveDx == 0 && moveDy > 0 ->
                     dx == 0 && dy > 0
 
-                Direction.LEFT ->
+                moveDx < 0 && moveDy == 0 ->
                     dy == 0 && dx < 0
 
-                Direction.RIGHT ->
+                moveDx > 0 && moveDy == 0 ->
                     dy == 0 && dx > 0
 
-                Direction.CORNER_TOP_LEFT ->
+                dir == Direction.CORNER_TOP_LEFT ->
                     dx < 0 && dy < 0 && -dx == -dy
 
-                Direction.CORNER_TOP_RIGHT ->
+                dir == Direction.CORNER_TOP_RIGHT ->
                     dx > 0 && dy < 0 && dx == -dy
 
-                Direction.CORNER_BOTTOM_LEFT ->
+                dir == Direction.CORNER_BOTTOM_LEFT ->
                     dx < 0 && dy > 0 && -dx == dy
 
-                Direction.CORNER_BOTTOM_RIGHT ->
+                dir == Direction.CORNER_BOTTOM_RIGHT ->
                     dx > 0 && dy > 0 && dx == dy
 
-                // Q: вправо по строке, затем вниз по правому краю.
-                Direction.CURVE_RIGHT_DOWN ->
-                    (dy == 0 && dx > 0) ||
-                        (
-                            other.gridX == cols - 1 &&
-                                other.gridY > candidateY
-                        )
-
-                // W: вниз по столбцу, затем влево по нижнему краю.
-                Direction.CURVE_DOWN_LEFT ->
-                    (dx == 0 && dy > 0) ||
-                        (
-                            other.gridY == rows - 1 &&
-                                other.gridX < candidateX
-                        )
+                else -> false
             }
         }
     }
@@ -657,11 +654,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             val baseRight = block.currentX + cellSize - inset
             val baseBottom = block.currentY + cellSize - inset
 
-            val currentWidth =
-                (baseRight - baseLeft) * block.scale
-
-            val currentHeight =
-                (baseBottom - baseTop) * block.scale
+            val currentWidth = (baseRight - baseLeft) * block.scale
+            val currentHeight = (baseBottom - baseTop) * block.scale
 
             val centerX = (baseLeft + baseRight) / 2f
             val centerY = (baseTop + baseBottom) / 2f
@@ -673,8 +667,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                 centerY + currentHeight / 2f
             )
 
-            val shadowAlpha =
-                (60 * (block.alpha / 255f)).toInt()
+            val shadowAlpha = (60 * (block.alpha / 255f)).toInt()
 
             blockPaint.setShadowLayer(
                 cellSize * 0.14f * block.scale,
@@ -785,8 +778,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         )
 
-        // Исправлено: изогнутые стрелки рисуются графическим путём,
-        // поэтому их отображение не зависит от наличия символов в шрифте.
         val curvedDirection = when {
             directions == listOf(Direction.CURVE_RIGHT_DOWN) ->
                 Direction.CURVE_RIGHT_DOWN
@@ -799,8 +790,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         if (curvedDirection != null) {
             arrowPaint.style = Paint.Style.STROKE
-            arrowPaint.strokeCap = Paint.Cap.ROUND
-            arrowPaint.strokeJoin = Paint.Join.ROUND
 
             val tipX: Float
             val tipY: Float
@@ -810,7 +799,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             arrowPath.reset()
 
             if (curvedDirection == Direction.CURVE_RIGHT_DOWN) {
-                // Стрелка идёт вправо, затем поворачивает вниз.
                 arrowPath.moveTo(
                     cx - length * 0.65f,
                     cy - length * 0.45f
@@ -838,7 +826,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 dirX = 0f
                 dirY = 1f
             } else {
-                // Стрелка идёт вниз, затем поворачивает влево.
                 arrowPath.moveTo(
                     cx + length * 0.45f,
                     cy - length * 0.65f
@@ -889,16 +876,18 @@ class ColorPuzzleView @JvmOverloads constructor(
         val headSize = length * 0.7f
 
         directions.forEach { dir ->
-            val tipX = cx + dir.dx * length
-            val tipY = cy + dir.dy * length
+            val (dx, dy) = movementVector(dir)
+
+            val tipX = cx + dx * length
+            val tipY = cy + dy * length
 
             arrowPaint.style = Paint.Style.STROKE
 
             canvas.drawLine(
-                cx - dir.dx * length * 0.6f,
-                cy - dir.dy * length * 0.6f,
-                tipX - dir.dx * headSize * 0.4f,
-                tipY - dir.dy * headSize * 0.4f,
+                cx - dx * length * 0.6f,
+                cy - dy * length * 0.6f,
+                tipX - dx * headSize * 0.4f,
+                tipY - dy * headSize * 0.4f,
                 arrowPaint
             )
 
@@ -906,8 +895,8 @@ class ColorPuzzleView @JvmOverloads constructor(
                 canvas,
                 tipX,
                 tipY,
-                dir.dx.toFloat(),
-                dir.dy.toFloat(),
+                dx.toFloat(),
+                dy.toFloat(),
                 headSize
             )
         }
@@ -924,10 +913,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             MotionEvent.ACTION_CANCEL -> return true
 
             MotionEvent.ACTION_UP -> {
-                if (
-                    cellSize <= 0f ||
-                    animatingBlockId != null
-                ) {
+                if (cellSize <= 0f || animatingBlockId != null) {
                     return true
                 }
 
@@ -956,9 +942,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun evaluateMove(block: Cell) {
-        val otherBlocks = blocks.filter {
-            it.id != block.id
-        }
+        val otherBlocks = blocks.filter { it.id != block.id }
 
         val freeDirs = block.directions.filter { dir ->
             !isRayBlocked(
@@ -971,9 +955,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         if (freeDirs.isEmpty()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                performHapticFeedback(
-                    HapticFeedbackConstants.REJECT
-                )
+                performHapticFeedback(HapticFeedbackConstants.REJECT)
             }
 
             onGameEventListener?.onWrongMove()
@@ -983,66 +965,34 @@ class ColorPuzzleView @JvmOverloads constructor(
         historyStack.push(exportState())
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            performHapticFeedback(
-                HapticFeedbackConstants.CONFIRM
-            )
+            performHapticFeedback(HapticFeedbackConstants.CONFIRM)
         }
 
         animatingBlockId = block.id
 
         val flightDir = freeDirs.random()
+        val (moveDx, moveDy) = movementVector(flightDir)
+
         val startX = block.currentX
         val startY = block.currentY
 
-        val isRightDown =
-            flightDir == Direction.CURVE_RIGHT_DOWN
+        // Движение по прямой в заданном направлении.
+        // В частности, Q движется вниз, W движется влево.
+        val distance = maxOf(width, height).toFloat() +
+            cellSize * maxOf(cols, rows)
 
-        val isDownLeft =
-            flightDir == Direction.CURVE_DOWN_LEFT
-
-        val distance = maxOf(width, height).toFloat()
-
-        val turnX = offsetX + cols * cellSize
-        val turnY = offsetY + rows * cellSize
-
-        val targetX = when {
-            isDownLeft -> offsetX - cellSize
-            isRightDown -> turnX
-            else -> startX + flightDir.dx * distance
-        }
-
-        val targetY = when {
-            isRightDown -> turnY + cellSize
-            isDownLeft -> turnY
-            else -> startY + flightDir.dy * distance
-        }
-
-        val firstSegment = when {
-            isRightDown -> (turnX - startX).coerceAtLeast(0f)
-            isDownLeft -> (turnY - startY).coerceAtLeast(0f)
-            else -> 0f
-        }
-
-        val secondSegment = when {
-            isRightDown -> (targetY - turnY).coerceAtLeast(0f)
-            isDownLeft -> (turnX - targetX).coerceAtLeast(0f)
-            else -> 0f
-        }
-
-        val totalPath =
-            (firstSegment + secondSegment).coerceAtLeast(1f)
+        val targetX = startX + moveDx * distance
+        val targetY = startY + moveDy * distance
 
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 360
             interpolator = AccelerateInterpolator()
 
             addUpdateListener { animation ->
-                val fraction =
-                    animation.animatedValue as Float
+                val fraction = animation.animatedValue as Float
 
                 if (fraction < 0.2f) {
-                    block.scale =
-                        1f - (fraction / 0.2f) * 0.12f
+                    block.scale = 1f - (fraction / 0.2f) * 0.12f
                 } else {
                     val progress = (
                         (fraction - 0.2f) / 0.8f
@@ -1050,43 +1000,11 @@ class ColorPuzzleView @JvmOverloads constructor(
 
                     block.scale = 0.88f + progress * 0.12f
 
-                    if (isRightDown || isDownLeft) {
-                        val travelled = totalPath * progress
+                    block.currentX =
+                        startX + (targetX - startX) * progress
 
-                        when {
-                            isRightDown &&
-                                travelled <= firstSegment -> {
-                                block.currentX =
-                                    startX + travelled
-                                block.currentY = startY
-                            }
-
-                            isRightDown -> {
-                                block.currentX = turnX
-                                block.currentY =
-                                    turnY + (travelled - firstSegment)
-                            }
-
-                            isDownLeft &&
-                                travelled <= firstSegment -> {
-                                block.currentX = startX
-                                block.currentY =
-                                    startY + travelled
-                            }
-
-                            else -> {
-                                block.currentX =
-                                    turnX - (travelled - firstSegment)
-                                block.currentY = turnY
-                            }
-                        }
-                    } else {
-                        // Остальные стрелки продолжают двигаться прямо.
-                        block.currentX =
-                            startX + (targetX - startX) * progress
-                        block.currentY =
-                            startY + (targetY - startY) * progress
-                    }
+                    block.currentY =
+                        startY + (targetY - startY) * progress
 
                     block.alpha = (
                         (1f - progress) * 255
@@ -1108,11 +1026,9 @@ class ColorPuzzleView @JvmOverloads constructor(
                             invalidate()
 
                             if (blocks.isEmpty()) {
-                                onGameEventListener
-                                    ?.onLevelCompleted()
+                                onGameEventListener?.onLevelCompleted()
                             } else {
-                                onGameEventListener
-                                    ?.onMoveMade()
+                                onGameEventListener?.onMoveMade()
                             }
                         }
                     }
