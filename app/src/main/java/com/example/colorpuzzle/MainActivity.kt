@@ -9,7 +9,6 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.LinearLayout
@@ -26,6 +25,7 @@ class MainActivity :
 
     companion object {
         private const val PREFS_NAME = "color_puzzle_progress"
+        private const val DEFAULT_LIVES = 3
     }
 
     private val prefs by lazy {
@@ -33,6 +33,7 @@ class MainActivity :
     }
 
     private var level = 1
+    private var lives = DEFAULT_LIVES
     private var language = "ru"
     private var soundEnabled = true
     private var musicEnabled = false
@@ -42,9 +43,9 @@ class MainActivity :
     private lateinit var subtitleText: TextView
     private lateinit var levelCaption: TextView
     private lateinit var tvLevel: TextView
+    private lateinit var livesCaption: TextView
+    private lateinit var tvLives: TextView
     private lateinit var hintText: TextView
-    private lateinit var movesTextView: TextView
-    private lateinit var colorGroupTextView: TextView
     private lateinit var puzzleView: ColorPuzzleView
     private lateinit var btnRestart: Button
     private lateinit var btnSettings: Button
@@ -109,6 +110,8 @@ class MainActivity :
         vibrationEnabled = prefs.getBoolean("vibration_enabled", true)
 
         level = prefs.getInt("level", 1).coerceAtLeast(1)
+        lives = prefs.getInt("lives", DEFAULT_LIVES)
+            .coerceIn(1, DEFAULT_LIVES)
     }
 
     private fun bindViews() {
@@ -116,9 +119,9 @@ class MainActivity :
         subtitleText = findViewById(R.id.subtitleText)
         levelCaption = findViewById(R.id.levelCaption)
         tvLevel = findViewById(R.id.tvLevel)
+        livesCaption = findViewById(R.id.livesCaption)
+        tvLives = findViewById(R.id.tvLives)
         hintText = findViewById(R.id.hintText)
-        movesTextView = findViewById(R.id.movesTextView)
-        colorGroupTextView = findViewById(R.id.colorGroupTextView)
         puzzleView = findViewById(R.id.puzzleView)
         btnRestart = findViewById(R.id.btnRestart)
         btnSettings = findViewById(R.id.btnSettings)
@@ -134,22 +137,33 @@ class MainActivity :
 
         levelCaption.text = tr("ТЕКУЩИЙ УРОВЕНЬ", "CURRENT LEVEL")
         tvLevel.text = tr("Уровень $level", "Level $level")
+        livesCaption.text = tr("ЖИЗНИ", "LIVES")
+        tvLives.text = "❤️".repeat(lives.coerceAtLeast(0))
 
         hintText.text = tr(
             "УБИРАЙ СТРЕЛКИ, КОТОРЫМ НИЧТО НЕ МЕШАЕТ",
             "CLEAR ARROWS THAT HAVE A FREE PATH"
         )
 
-        btnRestart.text = tr("↻   Повторить уровень", "↻   Restart level")
-        btnSettings.text = tr("⚙   Настройки", "⚙   Settings")
+        btnRestart.text = tr(
+            "↻   Повторить уровень",
+            "↻   Restart level"
+        )
 
-        if (::puzzleView.isInitialized) {
-            onMovesChanged(
-                puzzleView.getMovesLeft(),
-                puzzleView.getInitialMovesBudget()
-            )
-            onColorGroupChanged(puzzleView.getActiveColorGroup())
-        }
+        btnSettings.text = tr(
+            "⚙   Настройки",
+            "⚙   Settings"
+        )
+
+        btnRestart.contentDescription = tr(
+            "Повторить текущий уровень",
+            "Restart current level"
+        )
+
+        btnSettings.contentDescription = tr(
+            "Открыть настройки",
+            "Open settings"
+        )
     }
 
     private fun showSettingsDialog() {
@@ -210,7 +224,10 @@ class MainActivity :
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener {
-                    language = if (languageSpinner.selectedItemPosition == 0) "ru" else "en"
+                    language = if (
+                        languageSpinner.selectedItemPosition == 0
+                    ) "ru" else "en"
+
                     soundEnabled = soundSwitch.isChecked
                     musicEnabled = musicSwitch.isChecked
                     vibrationEnabled = vibrationSwitch.isChecked
@@ -239,18 +256,33 @@ class MainActivity :
         dialog.show()
     }
 
-    // =====================================================================
-    // Колбэки ColorPuzzleView.OnGameEventListener
-    // =====================================================================
-
     override fun onWrongMove() {
+        lives = (lives - 1).coerceAtLeast(0)
         playSound(success = false)
         vibrate(120)
-        Toast.makeText(
-            this,
-            tr("Путь заблокирован!", "Path is blocked!"),
-            Toast.LENGTH_SHORT
-        ).show()
+
+        if (lives <= 0) {
+            Toast.makeText(
+                this,
+                tr(
+                    "Жизни закончились. Уровень перезапущен.",
+                    "No lives left. Level restarted."
+                ),
+                Toast.LENGTH_SHORT
+            ).show()
+
+            lives = DEFAULT_LIVES
+            puzzleView.loadLevel(level)
+        } else {
+            Toast.makeText(
+                this,
+                tr("Путь заблокирован!", "Path is blocked!"),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        updateUI()
+        saveProgress()
     }
 
     override fun onMoveMade() {
@@ -262,6 +294,7 @@ class MainActivity :
     override fun onLevelCompleted() {
         val completedLevel = level
         level++
+        lives = DEFAULT_LIVES
 
         puzzleView.loadLevel(level)
         updateUI()
@@ -272,53 +305,16 @@ class MainActivity :
 
         Toast.makeText(
             this,
-            tr("Уровень $completedLevel пройден!", "Level $completedLevel completed!"),
+            tr(
+                "Уровень $completedLevel пройден!",
+                "Level $completedLevel completed!"
+            ),
             Toast.LENGTH_SHORT
         ).show()
     }
 
-    override fun onOutOfMoves() {
-        playSound(success = false)
-        vibrate(150)
-
-        AlertDialog.Builder(this)
-            .setTitle(tr("Ходы закончились", "Out of moves"))
-            .setMessage(
-                tr(
-                    "Блоки ещё остались, но ходов больше нет. Уровень провален.",
-                    "Blocks remain, but no moves left. Level failed."
-                )
-            )
-            .setPositiveButton(tr("Заново", "Restart")) { _, _ ->
-                restartCurrentLevel()
-            }
-            .setCancelable(false)
-            .show()
-    }
-
-    override fun onMovesChanged(left: Int, total: Int) {
-        if (!::movesTextView.isInitialized) return
-        movesTextView.text = tr(
-            "Ходы: $left / $total",
-            "Moves: $left / $total"
-        )
-    }
-
-    override fun onColorGroupChanged(groupId: Int) {
-        if (!::colorGroupTextView.isInitialized) return
-        if (groupId >= 0) {
-            colorGroupTextView.text = tr("Группа ${groupId + 1}", "Group ${groupId + 1}")
-            colorGroupTextView.visibility = View.VISIBLE
-        } else {
-            colorGroupTextView.visibility = View.GONE
-        }
-    }
-
-    // =====================================================================
-    // Вспомогательные методы
-    // =====================================================================
-
     private fun restartCurrentLevel() {
+        lives = DEFAULT_LIVES
         puzzleView.loadLevel(level)
         updateUI()
         saveProgress()
@@ -326,45 +322,62 @@ class MainActivity :
 
     private fun saveProgress() {
         if (!::puzzleView.isInitialized) return
+
         try {
             prefs.edit()
                 .putInt("level", level)
+                .putInt("lives", lives)
                 .putString("board_state", puzzleView.exportState())
                 .putString("language", language)
                 .putBoolean("sound_enabled", soundEnabled)
                 .putBoolean("music_enabled", musicEnabled)
                 .putBoolean("vibration_enabled", vibrationEnabled)
                 .apply()
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            // Ошибка сохранения не должна завершать приложение.
+        }
     }
 
     private fun playSound(success: Boolean) {
         if (!soundEnabled) return
+
         try {
             toneGenerator?.startTone(
-                if (success) ToneGenerator.TONE_PROP_ACK else ToneGenerator.TONE_PROP_NACK,
+                if (success) ToneGenerator.TONE_PROP_ACK
+                else ToneGenerator.TONE_PROP_NACK,
                 if (success) 90 else 160
             )
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            // Звуковые эффекты необязательны для работы игры.
+        }
     }
 
     @Suppress("DEPRECATION")
     private fun vibrate(durationMs: Long) {
         if (!vibrationEnabled) return
+
         try {
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 getSystemService(VibratorManager::class.java).defaultVibrator
             } else {
                 getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
             }
+
             if (!vibrator.hasVibrator()) return
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+                vibrator.vibrate(
+                    VibrationEffect.createOneShot(
+                        durationMs,
+                        VibrationEffect.DEFAULT_AMPLITUDE
+                    )
+                )
             } else {
                 vibrator.vibrate(durationMs)
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            // Вибрация может быть недоступна на устройстве.
+        }
     }
 
     private fun dp(value: Int): Int =
@@ -386,8 +399,10 @@ class MainActivity :
     override fun onDestroy() {
         musicPlayer?.release()
         musicPlayer = null
+
         toneGenerator?.release()
         toneGenerator = null
+
         super.onDestroy()
     }
-    }
+}
