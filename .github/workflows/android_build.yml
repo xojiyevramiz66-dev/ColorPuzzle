@@ -1,108 +1,107 @@
-
 name: Build ColorPuzzle APK
-
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+push:
+branches:
+- main
+workflow_dispatch:
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  build:
-    name: Build Android APK
-    runs-on: ubuntu-latest
+build:
+name: Build Android APK
+runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+  - name: Set up JDK 17
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: "17"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+  - name: Set up Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.x"
 
-      - name: Generate 100000 levels
-        run: python3 tools/generate_levels.py
+  - name: Generate 100000 levels
+    run: python3 tools/generate_levels.py
 
-      - name: Verify generated levels
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
+  - name: Verify generated levels
+    run: |
+      python3 - <<'PY'
+      from pathlib import Path
 
-          path = Path("app/src/main/assets/levels.dat")
-          lines = path.read_text(encoding="ascii").splitlines()
+      path = Path("app/src/main/assets/levels.dat")
+      lines = path.read_text(encoding="ascii").splitlines()
 
-          expected_count = 100000
-          allowed_symbols = set(".UDLRVBQW")
+      expected_count = 100000
+      allowed_symbols = set(".UDLRVBQWEA")
 
-          assert len(lines) == expected_count, (
-              f"Expected {expected_count} levels, got {len(lines)}"
+      assert len(lines) == expected_count, (
+          f"Expected {expected_count} levels, got {len(lines)}"
+      )
+
+      seen_symbols = set()
+
+      for expected, line in enumerate(lines, start=1):
+          parts = line.split("|", 3)
+
+          assert len(parts) == 4, (
+              f"Invalid line format: {expected}"
           )
 
-          seen_symbols = set()
+          level, cols, rows = map(int, parts[:3])
+          grid = parts[3]
 
-          for expected, line in enumerate(lines, start=1):
-              parts = line.split("|", 3)
+          assert level == expected, (
+              f"Wrong level number: {expected}"
+          )
 
-              assert len(parts) == 4, (
-                  f"Invalid line format: {expected}"
-              )
+          assert 4 <= cols <= 10, (
+              f"Invalid columns at level {expected}: {cols}"
+          )
 
-              level, cols, rows = map(int, parts[:3])
-              grid = parts[3]
+          assert 4 <= rows <= 10, (
+              f"Invalid rows at level {expected}: {rows}"
+          )
 
-              assert level == expected, (
-                  f"Wrong level number: {expected}"
-              )
+          assert len(grid) == cols * rows, (
+              f"Invalid grid size at level {expected}"
+          )
 
-              assert 4 <= cols <= 10, (
-                  f"Invalid columns at level {expected}: {cols}"
-              )
+          invalid_symbols = set(grid) - allowed_symbols
 
-              assert 4 <= rows <= 10, (
-                  f"Invalid rows at level {expected}: {rows}"
-              )
+          assert not invalid_symbols, (
+              f"Invalid symbols at level {expected}: "
+              f"{sorted(invalid_symbols)}"
+          )
 
-              assert len(grid) == cols * rows, (
-                  f"Invalid grid size at level {expected}"
-              )
+          assert grid.count(".") >= 1, (
+              f"No empty cell at level {expected}"
+          )
 
-              invalid_symbols = set(grid) - allowed_symbols
+          seen_symbols.update(set(grid) - {"."})
 
-              assert not invalid_symbols, (
-                  f"Invalid symbols at level {expected}: "
-                  f"{sorted(invalid_symbols)}"
-              )
+      print(f"Verified {len(lines)} level records.")
+      print(f"Symbols found: {sorted(seen_symbols)}")
+      PY
 
-              assert grid.count(".") >= 1, (
-                  f"No empty cell at level {expected}"
-              )
+  - name: Set up Gradle
+    uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: "8.2.1"
 
-              seen_symbols.update(set(grid) - {"."})
+  - name: Build debug APK
+    run: gradle --no-daemon assembleDebug
 
-          print(f"Verified {len(lines)} level records.")
-          print(f"Symbols found: {sorted(seen_symbols)}")
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.2.1"
-
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ColorPuzzle-debug
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: ColorPuzzle-debug
+      path: app/build/outputs/apk/debug/*.apk
+      if-no-files-found: error
