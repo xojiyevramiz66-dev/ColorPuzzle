@@ -115,7 +115,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         fun onLevelCompleted()
         fun onOutOfMoves()
         fun onMovesChanged(left: Int, total: Int)
-        fun onColorGroupChanged(groupId: Int)    // -1 = свободный режим
+        fun onColorGroupChanged(groupId: Int)
     }
 
     private val colors = intArrayOf(
@@ -195,14 +195,12 @@ class ColorPuzzleView @JvmOverloads constructor(
             else -> (0.45f + factor * 0.01f).coerceAtMost(0.55f)
         }
 
-        // Стены — появляются с 40-го уровня, растут до 20% клеток
         val obstacleCount = if (level < 40) 0 else {
             (total * (factor * 0.01f))
                 .toInt()
                 .coerceAtMost(total / 5)
         }
 
-        // Цветные группы — с 60-го уровня, до 5 групп
         val colorGroupCount = if (level < 60) 0 else {
             ((factor * 0.3f).toInt() + 1).coerceAtMost(5)
         }
@@ -271,7 +269,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         // 3. Генерируем блоки
         blocks.addAll(createHardLevel(requestedCount, config))
 
-        // 4. Назначаем цветовые группы
+        // 4. Назначаем цветовые группы (с защитой от тупиков)
         assignColorGroups(config.colorGroupCount)
 
         // 5. Активируем первую группу (если есть)
@@ -296,6 +294,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     fun getMovesLeft(): Int = movesLeft
     fun getInitialMovesBudget(): Int = initialMovesBudget
     fun getActiveColorGroup(): Int = activeColorGroup
+    fun getCurrentLevel(): Int = currentLevel
 
     private fun generateObstacles(count: Int) {
         if (count <= 0) return
@@ -310,31 +309,63 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun assignColorGroups(groupCount: Int) {
         if (groupCount <= 0 || blocks.isEmpty()) return
 
-        // Разбиваем блоки на groupCount групп случайно
-        val shuffled = blocks.shuffled()
-        val groupSize = (shuffled.size / (groupCount + 1)).coerceAtLeast(1)
-        var remaining = shuffled.toMutableList()
+        for (i in blocks.indices) {
+            blocks[i] = blocks[i].copy(colorGroupId = -1)
+        }
 
-        for (g in 0 until groupCount) {
-            if (remaining.isEmpty()) break
-            val take = minOf(groupSize, remaining.size)
-            val group = remaining.take(take)
-            remaining = remaining.drop(take).toMutableList()
+        var attempts = 0
+        while (attempts < 20) {
+            attempts++
+            val shuffled = blocks.shuffled()
+            val groupSize = (shuffled.size / (groupCount + 1)).coerceAtLeast(1)
+            var remaining = shuffled.toMutableList()
 
-            // Заменяем блоки в исходном списке на версии с colorGroupId
-            for (cell in group) {
-                val idx = blocks.indexOfFirst { it.id == cell.id }
-                if (idx >= 0) {
-                    blocks[idx] = blocks[idx].copy(colorGroupId = g)
+            for (g in 0 until groupCount) {
+                if (remaining.isEmpty()) break
+                val take = minOf(groupSize, remaining.size)
+                val group = remaining.take(take)
+                remaining = remaining.drop(take).toMutableList()
+
+                for (cell in group) {
+                    val idx = blocks.indexOfFirst { it.id == cell.id }
+                    if (idx >= 0) blocks[idx] = blocks[idx].copy(colorGroupId = g)
                 }
             }
+
+            if (isSolvableWithGroups(blocks)) {
+                return
+            }
+        }
+
+        // Если не удалось найти безопасную расстановку — убираем группы вообще
+        for (i in blocks.indices) {
+            blocks[i] = blocks[i].copy(colorGroupId = -1)
         }
     }
 
-    /**
-     * Возвращает id группы, блоки которой ещё есть на доске,
-     * или -1, если групп больше не осталось.
-     */
+    private fun isSolvableWithGroups(source: List<Cell>): Boolean {
+        val remaining = source.toMutableList()
+        var currentGroup = remaining.filter { it.colorGroupId >= 0 }.map { it.colorGroupId }.minOrNull() ?: -1
+        
+        while (remaining.isNotEmpty()) {
+            val removable = remaining.firstOrNull { block ->
+                val groupMatch = currentGroup == -1 || block.colorGroupId == currentGroup || block.colorGroupId == -1
+                val blockedByWall = block.directions.any { dir -> 
+                    isRayBlocked(block.gridX, block.gridY, dir, listOf()) 
+                }
+                groupMatch && !blockedByWall && isAvailable(block, remaining)
+            }
+            
+            if (removable == null) return false 
+            remaining.remove(removable)
+            
+            if (currentGroup != -1 && remaining.none { it.colorGroupId == currentGroup }) {
+                currentGroup = remaining.filter { it.colorGroupId > currentGroup }.map { it.colorGroupId }.minOrNull() ?: -1
+            }
+        }
+        return true
+    }
+
     private fun findNextRequiredGroup(): Int {
         val groups = blocks.map { it.colorGroupId }.filter { it >= 0 }
         return groups.minOrNull() ?: -1
@@ -390,7 +421,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             val expectedSize = calculateBoardSize(savedLevel)
             if (savedCols != expectedSize.first || savedRows != expectedSize.second) return false
 
-            // Стены
             val obsArray = root.optJSONArray("obstacles") ?: JSONArray()
             val newObstacles = mutableListOf<Obstacle>()
             val obsPositions = mutableSetOf<Pair<Int, Int>>()
@@ -403,7 +433,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 newObstacles.add(Obstacle(x, y))
             }
 
-            // Блоки
             val array = root.getJSONArray("blocks")
             val restored = mutableListOf<Cell>()
             val ids = mutableSetOf<Int>()
@@ -426,7 +455,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                 if (id < 1 || x !in 0 until savedCols || y !in 0 until savedRows) return false
                 if (!ids.add(id) || !positions.add(x to y)) return false
                 if (!colors.contains(color)) return false
-                if (obsPositions.contains(x to y)) return false  // блок на стене
+                if (obsPositions.contains(x to y)) return false
                 if (group < -1) return false
 
                 restored.add(
@@ -487,11 +516,6 @@ class ColorPuzzleView @JvmOverloads constructor(
     // Генерация уровня
     // =====================================================================
 
-    private fun isCellOccupied(x: Int, y: Int, others: List<Cell>): Boolean {
-        if (obstacles.any { it.gridX == x && it.gridY == y }) return true
-        return others.any { it.gridX == x && it.gridY == y }
-    }
-
     private fun createCell(
         id: Int,
         x: Int,
@@ -536,7 +560,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 else -> false
             }
             if (blocked) return@any true
-            // Стены тоже блокируют
             obstacles.any { o ->
                 when (dir) {
                     Direction.UP -> o.gridX == candidateX && o.gridY < candidateY
@@ -566,7 +589,12 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
         while (remaining.isNotEmpty()) {
-            val removable = remaining.firstOrNull { isAvailable(it, remaining) } ?: return false
+            val removable = remaining.firstOrNull { block ->
+                val blockedByWall = block.directions.any { dir -> 
+                    isRayBlocked(block.gridX, block.gridY, dir, listOf())
+                }
+                !blockedByWall && isAvailable(block, remaining)
+            } ?: return false
             remaining.remove(removable)
         }
         return true
@@ -645,7 +673,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             val availableDirections = possibleDirs.filter { dirs ->
                 val candidate = createCell(id, x, y, dirs)
-                !isPathBlocked(candidate, result) || Random.nextFloat() < 0.3f
+                !isPathBlocked(candidate, result) // Убрали 30% шанс спавна тупика
             }.shuffled()
 
             if (availableDirections.isNotEmpty()) {
@@ -757,7 +785,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             canvas.drawLine(offsetX, y, offsetX + cols * cellSize, y, paint)
         }
 
-        // Стены
         for (obstacle in obstacles) {
             val left = offsetX + obstacle.gridX * cellSize
             val top = offsetY + obstacle.gridY * cellSize
@@ -774,19 +801,10 @@ class ColorPuzzleView @JvmOverloads constructor(
             wallPaint.color = wallCrossColor
 
             val crossInset = cellSize * 0.22f
-            canvas.drawLine(
-                left + crossInset, top + crossInset,
-                left + cellSize - crossInset, top + cellSize - crossInset,
-                wallPaint
-            )
-            canvas.drawLine(
-                left + cellSize - crossInset, top + crossInset,
-                left + crossInset, top + cellSize - crossInset,
-                wallPaint
-            )
+            canvas.drawLine(left + crossInset, top + crossInset, left + cellSize - crossInset, top + cellSize - crossInset, wallPaint)
+            canvas.drawLine(left + cellSize - crossInset, top + crossInset, left + crossInset, top + cellSize - crossInset, wallPaint)
         }
 
-        // Блоки
         for (block in blocks) {
             val inset = cellSize * 0.08f
             val baseLeft = block.currentX + inset
@@ -824,7 +842,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
             blockPaint.clearShadowLayer()
 
-            // Хрупкий блок — белая рамка
             if (block.isFragile && block.alpha > 30) {
                 fragilePaint.style = Paint.Style.STROKE
                 fragilePaint.strokeWidth = (cellSize * 0.025f * block.scale).coerceAtLeast(1.5f)
@@ -837,7 +854,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 )
             }
 
-            // Блок в активной группе — цветная рамка вокруг
             if (block.colorGroupId >= 0 && block.colorGroupId == activeColorGroup && block.alpha > 30) {
                 val groupColor = groupColors[block.colorGroupId % groupColors.size]
                 groupPaint.style = Paint.Style.STROKE
@@ -941,22 +957,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             val endY = cy + dir2.dy * (length - headSize * 0.4f)
             canvas.drawLine(startX, startY, endX, endY, arrowPaint)
 
-            drawArrowHead(
-                canvas,
-                cx + dir1.dx * length,
-                cy + dir1.dy * length,
-                dir1.dx.toFloat(),
-                dir1.dy.toFloat(),
-                headSize
-            )
-            drawArrowHead(
-                canvas,
-                cx + dir2.dx * length,
-                cy + dir2.dy * length,
-                dir2.dx.toFloat(),
-                dir2.dy.toFloat(),
-                headSize
-            )
+            drawArrowHead(canvas, cx + dir1.dx * length, cy + dir1.dy * length, dir1.dx.toFloat(), dir1.dy.toFloat(), headSize)
+            drawArrowHead(canvas, cx + dir2.dx * length, cy + dir2.dy * length, dir2.dx.toFloat(), dir2.dy.toFloat(), headSize)
         } else if (directions.size == 1) {
             val dir = directions.first()
 
@@ -998,14 +1000,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
                 canvas.drawLine(startX, startY, endX, endY, arrowPaint)
 
-                drawArrowHead(
-                    canvas,
-                    cx + dir.dx * length,
-                    cy + dir.dy * length,
-                    dir.dx.toFloat(),
-                    dir.dy.toFloat(),
-                    headSize
-                )
+                drawArrowHead(canvas, cx + dir.dx * length, cy + dir.dy * length, dir.dx.toFloat(), dir.dy.toFloat(), headSize)
             }
         }
 
@@ -1055,9 +1050,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun evaluateMove(block: Cell) {
-        // 1. Проверка цветовой группы
         if (activeColorGroup >= 0 && block.colorGroupId != activeColorGroup) {
-            // Нельзя снимать блоки не из активной группы
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 performHapticFeedback(HapticFeedbackConstants.REJECT)
             }
@@ -1065,7 +1058,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             return
         }
 
-        // 2. Хрупкий блок
         if (block.isFragile && isFragileViolated(block)) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 performHapticFeedback(HapticFeedbackConstants.REJECT)
@@ -1074,7 +1066,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             return
         }
 
-        // 3. Свободен ли блок
         val freeDirs = block.directions.filter { dir ->
             !isRayBlocked(block.gridX, block.gridY, dir, blocks.filter { it.id != block.id })
         }
@@ -1087,7 +1078,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             return
         }
 
-        // 4. Бюджет ходов
         if (movesLeft <= 0) {
             onGameEventListener?.onOutOfMoves()
             return
@@ -1139,7 +1129,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                     if (blocks.remove(block)) {
                         animatingBlockId = null
 
-                        // Если ушёл последний блок активной группы — переключаемся
                         val newActive = findNextRequiredGroup()
                         if (newActive != activeColorGroup) {
                             activeColorGroup = newActive
