@@ -23,15 +23,51 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Generate 10000 levels
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Generate 100000 levels
         run: python3 tools/generate_levels.py
+
+      - name: Verify generated levels
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/assets/levels.dat")
+          lines = path.read_text(encoding="ascii").splitlines()
+
+          assert len(lines) == 100000, (
+              f"Expected 100000 levels, got {len(lines)}"
+          )
+
+          for expected, line in enumerate(lines, start=1):
+              parts = line.split("|", 3)
+              assert len(parts) == 4, f"Invalid line: {expected}"
+              level, cols, rows = map(int, parts[:3])
+              grid = parts[3]
+
+              assert level == expected, f"Wrong level number: {expected}"
+              assert 4 <= cols <= 10, f"Invalid columns: {expected}"
+              assert 4 <= rows <= 10, f"Invalid rows: {expected}"
+              assert len(grid) == cols * rows, (
+                  f"Invalid grid size: {expected}"
+              )
+              assert set(grid) <= set(".UD"), (
+                  f"Invalid symbols: {expected}"
+              )
+
+          print("Verified all 100000 generated level records.")
+          PY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.2.1'
+          gradle-version: "8.2.1"
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
