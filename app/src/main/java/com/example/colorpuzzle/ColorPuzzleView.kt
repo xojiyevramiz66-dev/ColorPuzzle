@@ -66,6 +66,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     private var animatingBlockId: Int? = null
 
     private val historyStack = Stack<String>()
+
     private var lastDifficultyMetrics =
         DifficultyMetrics(0, 0, 0)
 
@@ -75,13 +76,11 @@ class ColorPuzzleView @JvmOverloads constructor(
             Paint.DITHER_FLAG
     )
 
-    private val blockPaint = Paint(
-        Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG
-    )
+    private val blockPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
 
-    private val arrowPaint = Paint(
-        Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG
-    )
+    private val arrowPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
 
     private val arrowPath = Path()
     private val blocks = mutableListOf<Cell>()
@@ -115,7 +114,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // ---------------------------------------------------------
-    // Размер игрового поля
+    // Размер поля
     // ---------------------------------------------------------
 
     private fun calculateBoardSize(level: Int): Pair<Int, Int> {
@@ -157,14 +156,23 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         animatingBlockId = null
         historyStack.clear()
+        blocks.clear()
 
-        val prebuilt = PrebuiltLevelCatalog.load(
-            context,
-            currentLevel
-        )
+        val prebuilt = try {
+            PrebuiltLevelCatalog.load(context, currentLevel)
+        } catch (_: Exception) {
+            null
+        }
 
         val dimensions = prebuilt?.let {
-            it.cols to it.rows
+            if (it.cols in 4..10 &&
+                it.rows in 4..10 &&
+                it.grid.length == it.cols * it.rows
+            ) {
+                it.cols to it.rows
+            } else {
+                null
+            }
         } ?: calculateBoardSize(currentLevel)
 
         cols = dimensions.first
@@ -177,18 +185,15 @@ class ColorPuzzleView @JvmOverloads constructor(
             (totalCells * calculateDensity(currentLevel)).toInt()
         ).coerceAtLeast(1)
 
-        blocks.clear()
-
-        if (prebuilt != null) {
-            // Загружаем подготовленный уровень из levels.dat.
+        if (prebuilt != null &&
+            prebuilt.cols == cols &&
+            prebuilt.rows == rows &&
+            prebuilt.grid.length == totalCells
+        ) {
             prebuilt.grid.forEachIndexed { index, symbol ->
-                val direction = when (symbol) {
-                    'U' -> Direction.UP
-                    'D' -> Direction.DOWN
-                    else -> null
-                }
+                val directions = directionsForSymbol(symbol)
 
-                if (direction != null) {
+                if (directions.isNotEmpty()) {
                     val x = index % cols
                     val y = index / cols
 
@@ -196,21 +201,25 @@ class ColorPuzzleView @JvmOverloads constructor(
                         currentLevel.toLong() * 31L +
                             x * 17L +
                             y * 13L
-                        ).rem(colors.size.toLong()).toInt()
+                    ).rem(colors.size.toLong()).toInt()
 
                     blocks.add(
                         Cell(
                             id = blocks.size + 1,
                             gridX = x,
                             gridY = y,
-                            directions = listOf(direction),
+                            directions = directions,
                             colorResId = colors[colorIndex]
                         )
                     )
                 }
             }
-        } else {
-            // Запасной вариант, если levels.dat недоступен.
+        }
+
+        // Не оставляем игровое поле пустым, если каталог уровней
+        // отсутствует, повреждён или содержит неизвестные символы.
+        if (blocks.isEmpty()) {
+            blocks.clear()
             blocks.addAll(
                 createHardLevel(requestedCount, currentLevel)
             )
@@ -223,12 +232,43 @@ class ColorPuzzleView @JvmOverloads constructor(
         invalidate()
     }
 
+    private fun directionsForSymbol(symbol: Char): List<Direction> {
+        return when (symbol.uppercaseChar()) {
+            'U' -> listOf(Direction.UP)
+            'D' -> listOf(Direction.DOWN)
+            'L' -> listOf(Direction.LEFT)
+            'R' -> listOf(Direction.RIGHT)
+
+            'V' -> listOf(
+                Direction.UP,
+                Direction.DOWN
+            )
+
+            'B' -> listOf(
+                Direction.LEFT,
+                Direction.RIGHT
+            )
+
+            'Q' -> listOf(
+                Direction.CORNER_TOP_LEFT,
+                Direction.CORNER_BOTTOM_RIGHT
+            )
+
+            'W' -> listOf(
+                Direction.CORNER_TOP_RIGHT,
+                Direction.CORNER_BOTTOM_LEFT
+            )
+
+            else -> emptyList()
+        }
+    }
+
     fun loadLevel1() {
         loadLevel(1)
     }
 
     // ---------------------------------------------------------
-    // Сохранение и восстановление состояния
+    // Сохранение и восстановление
     // ---------------------------------------------------------
 
     fun exportState(): String {
@@ -258,7 +298,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
 
         root.put("blocks", array)
-
         return root.toString()
     }
 
@@ -270,16 +309,15 @@ class ColorPuzzleView @JvmOverloads constructor(
             val savedCols = root.getInt("cols")
             val savedRows = root.getInt("rows")
 
-            if (savedLevel != currentLevel) {
+            if (savedLevel != currentLevel) return false
+
+            // Сравниваем с реальным размером загруженного уровня,
+            // а не только с размером процедурно созданного поля.
+            if (savedCols != cols || savedRows != rows) {
                 return false
             }
 
-            val expectedSize = calculateBoardSize(savedLevel)
-
-            if (
-                savedCols != expectedSize.first ||
-                savedRows != expectedSize.second
-            ) {
+            if (savedCols !in 1..10 || savedRows !in 1..10) {
                 return false
             }
 
@@ -294,20 +332,20 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val id = item.getInt("id")
                 val x = item.getInt("x")
                 val y = item.getInt("y")
-
                 val directionText = item.getString("directions")
+                val color = item.getInt("color")
 
                 val directions = directionText
                     .split(",")
                     .map { Direction.valueOf(it) }
 
-                val color = item.getInt("color")
-
                 if (
                     id < 1 ||
                     x !in 0 until savedCols ||
                     y !in 0 until savedRows ||
-                    directions.isEmpty()
+                    directions.isEmpty() ||
+                    directions.size > Direction.values().size ||
+                    color == Color.TRANSPARENT
                 ) {
                     return false
                 }
@@ -335,11 +373,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             runningAnimator?.cancel()
             runningAnimator = null
 
-            cols = savedCols
-            rows = savedRows
-            currentLevel = savedLevel
             animatingBlockId = null
-
             blocks.clear()
             blocks.addAll(restored)
 
@@ -374,7 +408,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // ---------------------------------------------------------
-    // Создание блоков и генерация запасного уровня
+    // Создание гарантированно проходимого запасного уровня
     // ---------------------------------------------------------
 
     private fun createCell(
@@ -459,17 +493,11 @@ class ColorPuzzleView @JvmOverloads constructor(
         )
     }
 
-    private fun countAvailableMoves(
-        source: List<Cell>
-    ): Int {
-        return source.count {
-            isAvailable(it, source)
-        }
+    private fun countAvailableMoves(source: List<Cell>): Int {
+        return source.count { isAvailable(it, source) }
     }
 
-    private fun isSolvable(
-        source: List<Cell>
-    ): Boolean {
+    private fun isSolvable(source: List<Cell>): Boolean {
         val remaining = source.toMutableList()
 
         while (remaining.isNotEmpty()) {
@@ -495,8 +523,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         val result = mutableListOf<Cell>()
         val rng = Random(level)
 
-        // Все блоки одного столбца направлены одинаково.
-        // Это обеспечивает порядок, в котором их можно убрать.
+        // Каждый столбец использует только UP или только DOWN.
+        // Поэтому можно последовательно удалять блоки, начиная
+        // с верхнего или нижнего края соответствующего столбца.
         for (x in 0 until cols) {
             if (result.size >= target) break
 
@@ -540,14 +569,11 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // ---------------------------------------------------------
-    // Геометрия игрового поля
+    // Геометрия поля
     // ---------------------------------------------------------
 
-    private fun updateBoardGeometry(
-        w: Int,
-        h: Int
-    ) {
-        if (w <= 0 || h <= 0) return
+    private fun updateBoardGeometry(w: Int, h: Int) {
+        if (w <= 0 || h <= 0 || cols <= 0 || rows <= 0) return
 
         val availableWidth = w * 0.94f
         val availableHeight = h * 0.90f
@@ -584,7 +610,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // ---------------------------------------------------------
-    // Отрисовка поля и блоков
+    // Отрисовка игрового поля
     // ---------------------------------------------------------
 
     override fun onDraw(canvas: Canvas) {
@@ -712,17 +738,18 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
     }
 
-    private fun applyAlpha(
-        color: Int,
-        alpha: Int
-    ): Int {
+    private fun applyAlpha(color: Int, alpha: Int): Int {
         return Color.argb(
-            alpha,
+            alpha.coerceIn(0, 255),
             Color.red(color),
             Color.green(color),
             Color.blue(color)
         )
     }
+
+    // ---------------------------------------------------------
+    // Рисование стрелок
+    // ---------------------------------------------------------
 
     private fun drawArrowHead(
         canvas: Canvas,
@@ -738,20 +765,17 @@ class ColorPuzzleView @JvmOverloads constructor(
         val baseX = tipX - dirX * headSize
         val baseY = tipY - dirY * headSize
 
-        val wingX = headSize * 0.65f
-        val wingY = headSize * 0.65f
-
         arrowPath.reset()
         arrowPath.moveTo(tipX, tipY)
 
         arrowPath.lineTo(
-            baseX + perpX * wingX,
-            baseY + perpY * wingY
+            baseX + perpX * headSize * 0.65f,
+            baseY + perpY * headSize * 0.65f
         )
 
         arrowPath.lineTo(
-            baseX - perpX * wingX,
-            baseY - perpY * wingY
+            baseX - perpX * headSize * 0.65f,
+            baseY - perpY * headSize * 0.65f
         )
 
         arrowPath.close()
@@ -794,30 +818,15 @@ class ColorPuzzleView @JvmOverloads constructor(
             val tipX = cx + dir.dx * length
             val tipY = cy + dir.dy * length
 
-            if (dir.name.startsWith("CORNER")) {
-                val startX = cx - dir.dx * length * 0.65f
-                val startY = cy - dir.dy * length * 0.65f
+            arrowPaint.style = Paint.Style.STROKE
 
-                arrowPaint.style = Paint.Style.STROKE
-
-                canvas.drawLine(
-                    startX,
-                    startY,
-                    tipX - dir.dx * headSize * 0.4f,
-                    tipY - dir.dy * headSize * 0.4f,
-                    arrowPaint
-                )
-            } else {
-                arrowPaint.style = Paint.Style.STROKE
-
-                canvas.drawLine(
-                    cx - dir.dx * length * 0.6f,
-                    cy - dir.dy * length * 0.6f,
-                    tipX - dir.dx * headSize * 0.4f,
-                    tipY - dir.dy * headSize * 0.4f,
-                    arrowPaint
-                )
-            }
+            canvas.drawLine(
+                cx - dir.dx * length * 0.6f,
+                cy - dir.dy * length * 0.6f,
+                tipX - dir.dx * headSize * 0.4f,
+                tipY - dir.dy * headSize * 0.4f,
+                arrowPaint
+            )
 
             drawArrowHead(
                 canvas,
@@ -958,12 +967,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             addListener(
                 object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(
-                        animation: Animator
-                    ) {
-                        if (runningAnimator !== animation) {
-                            return
-                        }
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (runningAnimator !== animation) return
 
                         runningAnimator = null
 
