@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 
 from pathlib import Path
@@ -9,9 +10,11 @@ OUTPUT = ROOT / "app" / "src" / "main" / "assets" / "levels.dat"
 MAX_LEVEL = 100_000
 SEED_BASE = 20261024
 
-# Все направления — прямолинейные.
-# Q отображается как ↴, но движется только вниз.
-# W отображается как ↵, но движется только влево.
+# U/D/L/R — обычные стрелки.
+# V — вверх или вниз; B — влево или вправо.
+# Q/W/E/A — изогнутые стрелки с наконечником
+# вниз/влево/вверх/вправо соответственно.
+# Все блоки двигаются прямо по направлению наконечника.
 SYMBOL_DIRECTIONS = {
     "U": ((0, -1),),
     "D": ((0, 1),),
@@ -21,12 +24,12 @@ SYMBOL_DIRECTIONS = {
     "B": ((-1, 0), (1, 0)),
     "Q": ((0, 1),),
     "W": ((-1, 0),),
+    "E": ((0, -1),),
+    "A": ((1, 0),),
 }
 
-# Вес выбора каждого типа стрелки.
-# При равной доступности направлений обычные стрелки
-# составляют около 83%, двойные — 12,5%,
-# изогнутые — около 4,2%.
+# Обычные стрелки встречаются чаще.
+# Изогнутые стрелки остаются редкими.
 SYMBOL_WEIGHTS = {
     "U": 10,
     "D": 10,
@@ -36,6 +39,8 @@ SYMBOL_WEIGHTS = {
     "B": 3,
     "Q": 1,
     "W": 1,
+    "E": 1,
+    "A": 1,
 }
 
 ALL_DIRECTIONS = tuple(
@@ -49,7 +54,6 @@ ALL_DIRECTIONS = tuple(
 
 def board_size(level: int) -> tuple[int, int]:
     """Возвращает размер игрового поля для уровня."""
-
     stage = (max(1, level) - 1) // 5
 
     for first in range(4, 11):
@@ -65,7 +69,6 @@ def board_size(level: int) -> tuple[int, int]:
 
 def density_for_level(level: int) -> float:
     """Плотность заполнения игрового поля."""
-
     if level <= 1_000:
         return 0.60 + 0.10 * ((level - 1) / 999)
 
@@ -90,9 +93,7 @@ def ray_clear(
     rows: int,
 ) -> bool:
     """Проверяет свободный прямой путь."""
-
     dx, dy = direction
-
     x += dx
     y += dy
 
@@ -111,7 +112,6 @@ def choose_symbol(
     rng: random.Random,
 ) -> str:
     """Выбирает доступную стрелку с учётом её веса."""
-
     choices = [
         symbol
         for symbol, directions in SYMBOL_DIRECTIONS.items()
@@ -132,8 +132,7 @@ def choose_symbol(
 
 
 def generate_level(level: int) -> str:
-    """Создаёт один уровень, снимая доступные блоки по очереди."""
-
+    """Создаёт решаемый уровень."""
     cols, rows = board_size(level)
     total = cols * rows
 
@@ -172,8 +171,6 @@ def generate_level(level: int) -> str:
     grid = ["."] * total
 
     while remaining:
-        # Выбираем край поля. Это помогает обеспечить
-        # последовательность удаления блоков.
         edges = []
 
         if count_x[min_x] > 0:
@@ -195,10 +192,8 @@ def generate_level(level: int) -> str:
 
         axis, edge = rng.choice(edges)
         edge_set = by_x[edge] if axis == "x" else by_y[edge]
-
         x, y = rng.choice(tuple(edge_set))
 
-        # Проверяем направления, используя только прямые пути.
         free_directions = [
             direction
             for direction in ALL_DIRECTIONS
@@ -218,7 +213,6 @@ def generate_level(level: int) -> str:
             )
 
         symbol = choose_symbol(free_directions, rng)
-
         grid[y * cols + x] = symbol
 
         remaining.remove((x, y))
@@ -244,7 +238,6 @@ def generate_level(level: int) -> str:
 
 def main() -> None:
     """Генерирует levels.dat и печатает статистику."""
-
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 
     totals = {symbol: 0 for symbol in SYMBOL_DIRECTIONS}
