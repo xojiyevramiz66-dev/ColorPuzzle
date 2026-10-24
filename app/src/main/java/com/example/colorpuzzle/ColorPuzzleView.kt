@@ -444,7 +444,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                         (
                             other.gridX == cols - 1 &&
                                 other.gridY > candidateY
-                            )
+                        )
 
                 // W: вниз по столбцу, затем влево по нижнему краю.
                 Direction.CURVE_DOWN_LEFT ->
@@ -452,7 +452,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                         (
                             other.gridY == rows - 1 &&
                                 other.gridX < candidateX
-                            )
+                        )
             }
         }
     }
@@ -785,26 +785,97 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         )
 
-        val curvedSymbol = when {
-            directions == listOf(Direction.CURVE_RIGHT_DOWN) -> "↴"
-            directions == listOf(Direction.CURVE_DOWN_LEFT) -> "↵"
+        // Исправлено: изогнутые стрелки рисуются графическим путём,
+        // поэтому их отображение не зависит от наличия символов в шрифте.
+        val curvedDirection = when {
+            directions == listOf(Direction.CURVE_RIGHT_DOWN) ->
+                Direction.CURVE_RIGHT_DOWN
+
+            directions == listOf(Direction.CURVE_DOWN_LEFT) ->
+                Direction.CURVE_DOWN_LEFT
+
             else -> null
         }
 
-        if (curvedSymbol != null) {
-            arrowPaint.style = Paint.Style.FILL
-            arrowPaint.textAlign = Paint.Align.CENTER
-            arrowPaint.textSize = length * 2.15f
+        if (curvedDirection != null) {
+            arrowPaint.style = Paint.Style.STROKE
+            arrowPaint.strokeCap = Paint.Cap.ROUND
+            arrowPaint.strokeJoin = Paint.Join.ROUND
 
-            val metrics = arrowPaint.fontMetrics
-            val baseline =
-                cy - (metrics.ascent + metrics.descent) / 2f
+            val tipX: Float
+            val tipY: Float
+            val dirX: Float
+            val dirY: Float
 
-            canvas.drawText(
-                curvedSymbol,
-                cx,
-                baseline,
-                arrowPaint
+            arrowPath.reset()
+
+            if (curvedDirection == Direction.CURVE_RIGHT_DOWN) {
+                // Стрелка идёт вправо, затем поворачивает вниз.
+                arrowPath.moveTo(
+                    cx - length * 0.65f,
+                    cy - length * 0.45f
+                )
+
+                arrowPath.lineTo(
+                    cx + length * 0.30f,
+                    cy - length * 0.45f
+                )
+
+                arrowPath.quadTo(
+                    cx + length * 0.65f,
+                    cy - length * 0.45f,
+                    cx + length * 0.65f,
+                    cy - length * 0.10f
+                )
+
+                arrowPath.lineTo(
+                    cx + length * 0.65f,
+                    cy + length * 0.58f
+                )
+
+                tipX = cx + length * 0.65f
+                tipY = cy + length * 0.58f
+                dirX = 0f
+                dirY = 1f
+            } else {
+                // Стрелка идёт вниз, затем поворачивает влево.
+                arrowPath.moveTo(
+                    cx + length * 0.45f,
+                    cy - length * 0.65f
+                )
+
+                arrowPath.lineTo(
+                    cx + length * 0.45f,
+                    cy + length * 0.30f
+                )
+
+                arrowPath.quadTo(
+                    cx + length * 0.45f,
+                    cy + length * 0.65f,
+                    cx + length * 0.10f,
+                    cy + length * 0.65f
+                )
+
+                arrowPath.lineTo(
+                    cx - length * 0.58f,
+                    cy + length * 0.65f
+                )
+
+                tipX = cx - length * 0.58f
+                tipY = cy + length * 0.65f
+                dirX = -1f
+                dirY = 0f
+            }
+
+            canvas.drawPath(arrowPath, arrowPaint)
+
+            drawArrowHead(
+                canvas,
+                tipX,
+                tipY,
+                dirX,
+                dirY,
+                length * 0.7f
             )
 
             arrowPaint.clearShadowLayer()
