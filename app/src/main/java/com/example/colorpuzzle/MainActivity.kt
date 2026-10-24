@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.LinearLayout
@@ -46,6 +47,8 @@ class MainActivity :
     private lateinit var livesCaption: TextView
     private lateinit var tvLives: TextView
     private lateinit var hintText: TextView
+    private lateinit var movesTextView: TextView
+    private lateinit var colorGroupTextView: TextView
     private lateinit var puzzleView: ColorPuzzleView
     private lateinit var btnRestart: Button
     private lateinit var btnSettings: Button
@@ -122,6 +125,8 @@ class MainActivity :
         livesCaption = findViewById(R.id.livesCaption)
         tvLives = findViewById(R.id.tvLives)
         hintText = findViewById(R.id.hintText)
+        movesTextView = findViewById(R.id.movesTextView)
+        colorGroupTextView = findViewById(R.id.colorGroupTextView)
         puzzleView = findViewById(R.id.puzzleView)
         btnRestart = findViewById(R.id.btnRestart)
         btnSettings = findViewById(R.id.btnSettings)
@@ -164,6 +169,15 @@ class MainActivity :
             "Открыть настройки",
             "Open settings"
         )
+
+        // Обновляем счётчик ходов и активную группу
+        if (::puzzleView.isInitialized) {
+            onMovesChanged(
+                puzzleView.getMovesLeft(),
+                puzzleView.getInitialMovesBudget()
+            )
+            onColorGroupChanged(puzzleView.getActiveColorGroup())
+        }
     }
 
     private fun showSettingsDialog() {
@@ -256,6 +270,10 @@ class MainActivity :
         dialog.show()
     }
 
+    // =====================================================================
+    // Колбэки ColorPuzzleView.OnGameEventListener
+    // =====================================================================
+
     override fun onWrongMove() {
         lives = (lives - 1).coerceAtLeast(0)
         playSound(success = false)
@@ -312,6 +330,58 @@ class MainActivity :
             Toast.LENGTH_SHORT
         ).show()
     }
+
+    override fun onOutOfMoves() {
+        playSound(success = false)
+        vibrate(150)
+
+        AlertDialog.Builder(this)
+            .setTitle(tr("Ходы закончились", "Out of moves"))
+            .setMessage(
+                tr(
+                    "Блоки ещё остались, но ходов больше нет.",
+                    "Blocks remain, but no moves left."
+                )
+            )
+            .setPositiveButton(tr("Отменить ход", "Undo")) { _, _ ->
+                if (!puzzleView.undoMove()) {
+                    restartCurrentLevel()
+                } else {
+                    updateUI()
+                    saveProgress()
+                }
+            }
+            .setNegativeButton(tr("Заново", "Restart")) { _, _ ->
+                restartCurrentLevel()
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    override fun onMovesChanged(left: Int, total: Int) {
+        if (!::movesTextView.isInitialized) return
+        movesTextView.text = tr(
+            "Ходы: $left / $total",
+            "Moves: $left / $total"
+        )
+    }
+
+    override fun onColorGroupChanged(groupId: Int) {
+        if (!::colorGroupTextView.isInitialized) return
+        if (groupId >= 0) {
+            colorGroupTextView.text = tr(
+                "Группа ${groupId + 1}",
+                "Group ${groupId + 1}"
+            )
+            colorGroupTextView.visibility = View.VISIBLE
+        } else {
+            colorGroupTextView.visibility = View.GONE
+        }
+    }
+
+    // =====================================================================
+    // Вспомогательные методы
+    // =====================================================================
 
     private fun restartCurrentLevel() {
         lives = DEFAULT_LIVES
@@ -405,4 +475,4 @@ class MainActivity :
 
         super.onDestroy()
     }
-}
+    }
