@@ -165,7 +165,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
 
         val dimensions = prebuilt?.let {
-            if (it.cols in 4..10 &&
+            if (
+                it.cols in 4..10 &&
                 it.rows in 4..10 &&
                 it.grid.length == it.cols * it.rows
             ) {
@@ -185,7 +186,8 @@ class ColorPuzzleView @JvmOverloads constructor(
             (totalCells * calculateDensity(currentLevel)).toInt()
         ).coerceAtLeast(1)
 
-        if (prebuilt != null &&
+        if (
+            prebuilt != null &&
             prebuilt.cols == cols &&
             prebuilt.rows == rows &&
             prebuilt.grid.length == totalCells
@@ -216,8 +218,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             }
         }
 
-        // Не оставляем игровое поле пустым, если каталог уровней
-        // отсутствует, повреждён или содержит неизвестные символы.
+        // Резервный уровень, если каталог пустой или повреждён.
         if (blocks.isEmpty()) {
             blocks.clear()
             blocks.addAll(
@@ -311,8 +312,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             if (savedLevel != currentLevel) return false
 
-            // Сравниваем с реальным размером загруженного уровня,
-            // а не только с размером процедурно созданного поля.
             if (savedCols != cols || savedRows != rows) {
                 return false
             }
@@ -408,7 +407,7 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     // ---------------------------------------------------------
-    // Создание гарантированно проходимого запасного уровня
+    // Создание запасного уровня
     // ---------------------------------------------------------
 
     private fun createCell(
@@ -426,6 +425,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         alpha = 255
     )
 
+    // ---------------------------------------------------------
+    // ИСПРАВЛЕНО: проверка препятствий на луче
+    // ---------------------------------------------------------
+
     private fun isRayBlocked(
         candidateX: Int,
         candidateY: Int,
@@ -433,38 +436,34 @@ class ColorPuzzleView @JvmOverloads constructor(
         others: List<Cell>
     ): Boolean {
         return others.any { other ->
+            val dx = other.gridX - candidateX
+            val dy = other.gridY - candidateY
+
             when (dir) {
                 Direction.UP ->
-                    other.gridX == candidateX &&
-                        other.gridY < candidateY
+                    dx == 0 && dy < 0
 
                 Direction.DOWN ->
-                    other.gridX == candidateX &&
-                        other.gridY > candidateY
+                    dx == 0 && dy > 0
 
                 Direction.LEFT ->
-                    other.gridY == candidateY &&
-                        other.gridX < candidateX
+                    dy == 0 && dx < 0
 
                 Direction.RIGHT ->
-                    other.gridY == candidateY &&
-                        other.gridX > candidateX
+                    dy == 0 && dx > 0
 
+                // Препятствие должно лежать точно на диагонали.
                 Direction.CORNER_TOP_LEFT ->
-                    other.gridX < candidateX &&
-                        other.gridY < candidateY
+                    dx < 0 && dy < 0 && -dx == -dy
 
                 Direction.CORNER_TOP_RIGHT ->
-                    other.gridX > candidateX &&
-                        other.gridY < candidateY
+                    dx > 0 && dy < 0 && dx == -dy
 
                 Direction.CORNER_BOTTOM_LEFT ->
-                    other.gridX < candidateX &&
-                        other.gridY > candidateY
+                    dx < 0 && dy > 0 && -dx == dy
 
                 Direction.CORNER_BOTTOM_RIGHT ->
-                    other.gridX > candidateX &&
-                        other.gridY > candidateY
+                    dx > 0 && dy > 0 && dx == dy
             }
         }
     }
@@ -523,9 +522,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         val result = mutableListOf<Cell>()
         val rng = Random(level)
 
-        // Каждый столбец использует только UP или только DOWN.
-        // Поэтому можно последовательно удалять блоки, начиная
-        // с верхнего или нижнего края соответствующего столбца.
+        // Вертикальные стрелки не блокируют соседние столбцы.
         for (x in 0 until cols) {
             if (result.size >= target) break
 
@@ -811,6 +808,46 @@ class ColorPuzzleView @JvmOverloads constructor(
                 0
             )
         )
+
+        // Q отображается символом ↴, W — символом ↵.
+        // Направления движения этих блоков остаются диагональными.
+        val curvedSymbol = when {
+            directions == listOf(
+                Direction.CORNER_TOP_LEFT,
+                Direction.CORNER_BOTTOM_RIGHT
+            ) -> "↴"
+
+            directions == listOf(
+                Direction.CORNER_TOP_RIGHT,
+                Direction.CORNER_BOTTOM_LEFT
+            ) -> "↵"
+
+            else -> null
+        }
+
+        if (curvedSymbol != null) {
+            arrowPaint.style = Paint.Style.FILL
+            arrowPaint.textAlign = Paint.Align.CENTER
+            arrowPaint.textSize = length * 2.15f
+
+            val metrics = arrowPaint.fontMetrics
+            val baseline =
+                cy - (metrics.ascent + metrics.descent) / 2f
+
+            canvas.drawText(
+                curvedSymbol,
+                cx,
+                baseline,
+                arrowPaint
+            )
+
+            arrowPaint.clearShadowLayer()
+            arrowPaint.style = Paint.Style.FILL
+            arrowPaint.textAlign = Paint.Align.LEFT
+            arrowPaint.strokeCap = Paint.Cap.BUTT
+            arrowPaint.strokeJoin = Paint.Join.MITER
+            return
+        }
 
         val headSize = length * 0.7f
 
