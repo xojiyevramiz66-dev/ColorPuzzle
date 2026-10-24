@@ -99,7 +99,9 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     init {
         isHapticFeedbackEnabled = true
-        loadLevel(1)
+        // ВНИМАНИЕ: Загружаем 102-й уровень для проверки угловых стрелок!
+        // Позже поменяй на loadLevel(1)
+        loadLevel(102) 
     }
 
     // =====================================================================
@@ -580,7 +582,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     private fun drawArrow(canvas: Canvas, cx: Float, cy: Float, length: Float, directions: List<Direction>, alpha: Int) {
         arrowPaint.shader = null
         arrowPaint.color = applyAlpha(arrowColor, alpha)
-        arrowPaint.strokeWidth = (length * 0.32f).coerceAtLeast(3f)
+        // Делаем линию чуть тоньше, чтобы она смотрелась изящнее
+        arrowPaint.strokeWidth = (length * 0.28f).coerceAtLeast(3f)
         arrowPaint.strokeCap = Paint.Cap.ROUND
         arrowPaint.strokeJoin = Paint.Join.ROUND
 
@@ -592,7 +595,7 @@ class ColorPuzzleView @JvmOverloads constructor(
             Color.argb((alpha * 0.4f).toInt(), 0, 0, 0)
         )
 
-        val headSize = length * 0.7f
+        val headSize = length * 0.8f
 
         // 1. Двойная стрелка
         if (directions.size == 2) {
@@ -600,10 +603,10 @@ class ColorPuzzleView @JvmOverloads constructor(
             val dir2 = directions[1]
             
             arrowPaint.style = Paint.Style.STROKE
-            val startX = cx + dir1.dx * (length - headSize * 0.4f)
-            val startY = cy + dir1.dy * (length - headSize * 0.4f)
-            val endX = cx + dir2.dx * (length - headSize * 0.4f)
-            val endY = cy + dir2.dy * (length - headSize * 0.4f)
+            val startX = cx + dir1.dx * (length - headSize * 0.5f)
+            val startY = cy + dir1.dy * (length - headSize * 0.5f)
+            val endX = cx + dir2.dx * (length - headSize * 0.5f)
+            val endY = cy + dir2.dy * (length - headSize * 0.5f)
             canvas.drawLine(startX, startY, endX, endY, arrowPaint)
             
             drawArrowHead(canvas, cx + dir1.dx * length, cy + dir1.dy * length, dir1.dx.toFloat(), dir1.dy.toFloat(), headSize)
@@ -618,38 +621,40 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val isRight = dir == Direction.CORNER_TOP_RIGHT || dir == Direction.CORNER_BOTTOM_RIGHT
                 val isBottom = dir == Direction.CORNER_BOTTOM_LEFT || dir == Direction.CORNER_BOTTOM_RIGHT
 
-                val r = length * 0.7f
+                val r = length * 0.6f
                 
                 val tailX = if (isRight) cx - r else cx + r
                 val tailY = if (isBottom) cy - r else cy + r
                 
+                // Точка изгиба (угол)
+                val cornerX = if (isRight) cx + r else cx - r
+                val cornerY = if (isBottom) cy + r else cy - r
+                
+                // ВАЖНО: Линия должна идти прямо до кончика наконечника, 
+                // чтобы не было разрыва. Наконечник перекроет конец линии.
                 val tipX = if (isRight) cx + r else cx - r
                 val tipY = if (isBottom) cy + r else cy - r
 
-                val cornerX = if (isRight) cx + r else cx - r
-                val cornerY = if (isBottom) cy - r else cy + r
-                
-                val lineEndX = tipX - (if (isRight) headSize else -headSize) * 0.4f
-                val lineEndY = tipY - (if (isBottom) headSize else -headSize) * 0.4f
-
+                // Рисуем монолитную дугу
                 arrowPath.reset()
                 arrowPath.moveTo(tailX, tailY)
                 arrowPath.lineTo(cornerX, cornerY)
-                arrowPath.lineTo(lineEndX, lineEndY)
+                arrowPath.lineTo(tipX, tipY)
                 
                 arrowPaint.style = Paint.Style.STROKE
                 canvas.drawPath(arrowPath, arrowPaint)
 
+                // Рисуем наконечник
                 val dirX = if (isRight) 1f else -1f
                 val dirY = if (isBottom) 1f else -1f
                 drawArrowHead(canvas, tipX, tipY, dirX, dirY, headSize)
                 
             } else {
                 arrowPaint.style = Paint.Style.STROKE
-                val startX = cx - dir.dx * (length - headSize * 0.4f)
-                val startY = cy - dir.dy * (length - headSize * 0.4f)
-                val endX = cx + dir.dx * (length - headSize * 0.4f)
-                val endY = cy + dir.dy * (length - headSize * 0.4f)
+                val startX = cx - dir.dx * (length - headSize * 0.5f)
+                val startY = cy - dir.dy * (length - headSize * 0.5f)
+                val endX = cx + dir.dx * (length - headSize * 0.5f)
+                val endY = cy + dir.dy * (length - headSize * 0.5f)
 
                 canvas.drawLine(startX, startY, endX, endY, arrowPaint)
                 
