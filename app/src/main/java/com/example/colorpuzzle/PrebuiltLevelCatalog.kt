@@ -11,7 +11,7 @@ internal data class PrebuiltLevel(
 )
 
 internal object PrebuiltLevelCatalog {
-    const val MAX_LEVEL = 10_000
+    const val MAX_LEVEL = 100_000
 
     @Volatile
     private var cache: Map<Int, PrebuiltLevel>? = null
@@ -60,12 +60,17 @@ internal object PrebuiltLevelCatalog {
                             return@mapNotNull null
                         }
 
-                        PrebuiltLevel(level, cols, rows, grid)
+                        PrebuiltLevel(
+                            level = level,
+                            cols = cols,
+                            rows = rows,
+                            grid = grid
+                        )
                     }.associateBy { it.level }
                 }
 
             cache = parsed
-            parsed
+            cache
         }
     }
 }
