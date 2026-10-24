@@ -1,3 +1,4 @@
+
 name: Build ColorPuzzle APK
 
 on:
@@ -23,6 +24,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Generate 10000 levels
+        run: python3 tools/generate_levels.py
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
