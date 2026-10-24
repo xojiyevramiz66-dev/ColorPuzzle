@@ -37,10 +37,11 @@ class ColorPuzzleView @JvmOverloads constructor(
         CORNER_BOTTOM_LEFT(-1, 1),
         CORNER_BOTTOM_RIGHT(1, 1),
 
-        // Графические формы стрелок. Реальное направление
-        // движения задаётся в movementVector().
+        // Изогнутые стрелки. Движение определяется в movementVector().
         CURVE_RIGHT_DOWN(0, 0), // ↴ движется вниз
-        CURVE_DOWN_LEFT(0, 0)   // ↵ движется влево
+        CURVE_DOWN_LEFT(0, 0),  // ↵ движется влево
+        CURVE_LEFT_UP(0, 0),    // Изогнутая стрелка вверх
+        CURVE_UP_RIGHT(0, 0)    // Изогнутая стрелка вправо
     }
 
     private data class Cell(
@@ -119,14 +120,20 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Преобразует графическую форму стрелки в направление движения.
-     * ↴ -> вниз
-     * ↵ -> влево
+     * Преобразует графическую форму стрелки
+     * в фактическое направление движения.
+     *
+     * Q / ↴ -> вниз
+     * W / ↵ -> влево
+     * E       -> вверх
+     * A       -> вправо
      */
     private fun movementVector(direction: Direction): Pair<Int, Int> {
         return when (direction) {
             Direction.CURVE_RIGHT_DOWN -> 0 to 1
             Direction.CURVE_DOWN_LEFT -> -1 to 0
+            Direction.CURVE_LEFT_UP -> 0 to -1
+            Direction.CURVE_UP_RIGHT -> 1 to 0
             else -> direction.dx to direction.dy
         }
     }
@@ -242,6 +249,20 @@ class ColorPuzzleView @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * Преобразует символ уровня в направление стрелки.
+     *
+     * U = вверх
+     * D = вниз
+     * L = влево
+     * R = вправо
+     * V = вверх и вниз
+     * B = влево и вправо
+     * Q = изогнутая, движение вниз
+     * W = изогнутая, движение влево
+     * E = изогнутая, движение вверх
+     * A = изогнутая, движение вправо
+     */
     private fun directionsForSymbol(symbol: Char): List<Direction> {
         return when (symbol.uppercaseChar()) {
             'U' -> listOf(Direction.UP)
@@ -261,6 +282,8 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             'Q' -> listOf(Direction.CURVE_RIGHT_DOWN)
             'W' -> listOf(Direction.CURVE_DOWN_LEFT)
+            'E' -> listOf(Direction.CURVE_LEFT_UP)
+            'A' -> listOf(Direction.CURVE_UP_RIGHT)
 
             else -> emptyList()
         }
@@ -409,8 +432,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     /**
      * Проверяет препятствия вдоль фактического направления движения.
-     * Для Q учитывается только движение вниз.
-     * Для W учитывается только движение влево.
      */
     private fun isRayBlocked(
         candidateX: Int,
@@ -778,92 +799,54 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         )
 
-        val curvedDirection = when {
-            directions == listOf(Direction.CURVE_RIGHT_DOWN) ->
-                Direction.CURVE_RIGHT_DOWN
-
-            directions == listOf(Direction.CURVE_DOWN_LEFT) ->
-                Direction.CURVE_DOWN_LEFT
-
+        // Все четыре формы используют один рисунок,
+        // повёрнутый в нужное направление.
+        val curvedRotation = when {
+            directions == listOf(Direction.CURVE_RIGHT_DOWN) -> 0f
+            directions == listOf(Direction.CURVE_DOWN_LEFT) -> 90f
+            directions == listOf(Direction.CURVE_LEFT_UP) -> 180f
+            directions == listOf(Direction.CURVE_UP_RIGHT) -> 270f
             else -> null
         }
 
-        if (curvedDirection != null) {
+        if (curvedRotation != null) {
             arrowPaint.style = Paint.Style.STROKE
 
-            val tipX: Float
-            val tipY: Float
-            val dirX: Float
-            val dirY: Float
+            canvas.save()
+            canvas.rotate(curvedRotation, cx, cy)
 
             arrowPath.reset()
-
-            if (curvedDirection == Direction.CURVE_RIGHT_DOWN) {
-                arrowPath.moveTo(
-                    cx - length * 0.65f,
-                    cy - length * 0.45f
-                )
-
-                arrowPath.lineTo(
-                    cx + length * 0.30f,
-                    cy - length * 0.45f
-                )
-
-                arrowPath.quadTo(
-                    cx + length * 0.65f,
-                    cy - length * 0.45f,
-                    cx + length * 0.65f,
-                    cy - length * 0.10f
-                )
-
-                arrowPath.lineTo(
-                    cx + length * 0.65f,
-                    cy + length * 0.58f
-                )
-
-                tipX = cx + length * 0.65f
-                tipY = cy + length * 0.58f
-                dirX = 0f
-                dirY = 1f
-            } else {
-                arrowPath.moveTo(
-                    cx + length * 0.45f,
-                    cy - length * 0.65f
-                )
-
-                arrowPath.lineTo(
-                    cx + length * 0.45f,
-                    cy + length * 0.30f
-                )
-
-                arrowPath.quadTo(
-                    cx + length * 0.45f,
-                    cy + length * 0.65f,
-                    cx + length * 0.10f,
-                    cy + length * 0.65f
-                )
-
-                arrowPath.lineTo(
-                    cx - length * 0.58f,
-                    cy + length * 0.65f
-                )
-
-                tipX = cx - length * 0.58f
-                tipY = cy + length * 0.65f
-                dirX = -1f
-                dirY = 0f
-            }
+            arrowPath.moveTo(
+                cx - length * 0.65f,
+                cy - length * 0.45f
+            )
+            arrowPath.lineTo(
+                cx + length * 0.30f,
+                cy - length * 0.45f
+            )
+            arrowPath.quadTo(
+                cx + length * 0.65f,
+                cy - length * 0.45f,
+                cx + length * 0.65f,
+                cy - length * 0.10f
+            )
+            arrowPath.lineTo(
+                cx + length * 0.65f,
+                cy + length * 0.58f
+            )
 
             canvas.drawPath(arrowPath, arrowPaint)
 
             drawArrowHead(
                 canvas,
-                tipX,
-                tipY,
-                dirX,
-                dirY,
+                cx + length * 0.65f,
+                cy + length * 0.58f,
+                0f,
+                1f,
                 length * 0.7f
             )
+
+            canvas.restore()
 
             arrowPaint.clearShadowLayer()
             arrowPaint.style = Paint.Style.FILL
@@ -976,8 +959,8 @@ class ColorPuzzleView @JvmOverloads constructor(
         val startX = block.currentX
         val startY = block.currentY
 
-        // Движение по прямой в заданном направлении.
-        // В частности, Q движется вниз, W движется влево.
+        // Движение всегда прямолинейное.
+        // Q — вниз, W — влево, E — вверх, A — вправо.
         val distance = maxOf(width, height).toFloat() +
             cellSize * maxOf(cols, rows)
 
