@@ -46,7 +46,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         val directions: List<Direction>,
         val colorResId: Int,
         val isFragile: Boolean = false,
-        val colorGroupId: Int = -1,          // -1 = без группы
+        val colorGroupId: Int = -1,
         var currentX: Float = 0f,
         var currentY: Float = 0f,
         var scale: Float = 1f,
@@ -83,11 +83,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     private var currentLevel = 1
     private var animatingBlockId: Int? = null
 
-    // Бюджет ходов
     private var movesLeft = 0
     private var initialMovesBudget = 0
-
-    // Активная цветовая группа (-1 = свободный режим)
     private var activeColorGroup = -1
 
     private val historyStack = Stack<String>()
@@ -174,34 +171,37 @@ class ColorPuzzleView @JvmOverloads constructor(
                 .coerceAtLeast(1)
         }
 
+        // Убран запас ходов с 16 уровня
         val movesSlack = when {
-            level <= 10 -> 5
-            level <= 50 -> 3
-            level <= 150 -> 1
-            else -> 0
+            level <= 5 -> 3
+            level <= 15 -> 1
+            else -> 0 
         }
 
-        val fragileChance = (factor * 0.02f).coerceAtMost(0.25f)
+        // Хрупких блоков больше (до 40%)
+        val fragileChance = (factor * 0.03f).coerceAtMost(0.40f)
 
-        val doubleArrowChance = if (level < 50) 0f else when {
-            level < 70 -> 0.15f
-            level < 90 -> 0.25f
-            else -> (0.35f + factor * 0.01f).coerceAtMost(0.45f)
+        val doubleArrowChance = if (level < 20) 0f else when {
+            level < 50 -> 0.20f
+            level < 100 -> 0.35f
+            else -> 0.50f
         }
 
-        val cornerArrowChance = if (level < 100) 0f else when {
-            level < 120 -> 0.15f
-            level < 150 -> 0.30f
-            else -> (0.45f + factor * 0.01f).coerceAtMost(0.55f)
+        val cornerArrowChance = if (level < 30) 0f else when {
+            level < 70 -> 0.20f
+            level < 120 -> 0.35f
+            else -> 0.50f
         }
 
-        val obstacleCount = if (level < 40) 0 else {
-            (total * (factor * 0.01f))
+        // Стены с 15 уровня (до 25% поля)
+        val obstacleCount = if (level < 15) 0 else {
+            (total * (factor * 0.015f))
                 .toInt()
-                .coerceAtMost(total / 5)
+                .coerceAtMost(total / 4)
         }
 
-        val colorGroupCount = if (level < 60) 0 else {
+        // Группы с 40 уровня
+        val colorGroupCount = if (level < 40) 0 else {
             ((factor * 0.3f).toInt() + 1).coerceAtMost(5)
         }
 
@@ -256,23 +256,16 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         val config = computeLevelConfig(currentLevel)
 
-        // 1. Генерируем стены
         generateObstacles(config.obstacleCount)
 
-        // 2. Считаем, сколько блоков поместится (за вычетом стен)
         val freeCells = cols * rows - obstacles.size
         val requestedCount = minOf(
             freeCells - 1,
             (freeCells * calculateDensity(currentLevel)).toInt()
         ).coerceAtLeast(1)
 
-        // 3. Генерируем блоки
         blocks.addAll(createHardLevel(requestedCount, config))
-
-        // 4. Назначаем цветовые группы (с защитой от тупиков)
         assignColorGroups(config.colorGroupCount)
-
-        // 5. Активируем первую группу (если есть)
         activeColorGroup = findNextRequiredGroup()
 
         lastDifficultyMetrics = measureDifficulty(blocks)
@@ -337,7 +330,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             }
         }
 
-        // Если не удалось найти безопасную расстановку — убираем группы вообще
         for (i in blocks.indices) {
             blocks[i] = blocks[i].copy(colorGroupId = -1)
         }
@@ -671,15 +663,32 @@ class ColorPuzzleView @JvmOverloads constructor(
                 possibleDirs.add(listOf(Direction.RIGHT))
             }
 
-            val availableDirections = possibleDirs.filter { dirs ->
+            // Ищем направления, которые упираются в соседей (сложные)
+            val hardDirs = possibleDirs.filter { dirs ->
                 val candidate = createCell(id, x, y, dirs)
-                !isPathBlocked(candidate, result) // Убрали 30% шанс спавна тупика
+                isPathBlocked(candidate, result)
             }.shuffled()
 
-            if (availableDirections.isNotEmpty()) {
-                val dirs = availableDirections.first()
+            // Ищем направления, где путь свободен (легкие)
+            val easyDirs = possibleDirs.filter { dirs ->
+                val candidate = createCell(id, x, y, dirs)
+                !isPathBlocked(candidate, result)
+            }.shuffled()
+
+            // С шансом 75% ставим "сложный" блок, чтобы не было односторонних уровней
+            val chosenDirs = if (hardDirs.isNotEmpty() && Random.nextFloat() < 0.75f) {
+                hardDirs.first()
+            } else if (easyDirs.isNotEmpty()) {
+                easyDirs.first()
+            } else if (hardDirs.isNotEmpty()) {
+                hardDirs.first()
+            } else {
+                null
+            }
+
+            if (chosenDirs != null) {
                 val fragile = Random.nextFloat() < config.fragileChance
-                result.add(createCell(id, x, y, dirs, fragile))
+                result.add(createCell(id, x, y, chosenDirs, fragile))
                 id++
             }
         }
