@@ -1,6 +1,12 @@
 package com.example.colorpuzzle
 
 import android.content.Context
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.io.RandomAccessFile
 
 data class PrebuiltLevel(
     val level: Int,
@@ -13,86 +19,184 @@ object PrebuiltLevelCatalog {
 
     const val MAX_LEVEL = 500_000
 
-    // Все символы, которые использует генератор уровней.
-    // U — вверх, D — вниз, L — влево, R — вправо,
-    // V — вверх и вниз, B — влево и вправо,
-    // Q — вниз, W — влево, E — вверх, A — вправо.
+    private const val DATA_FILE = "levels-v1.dat"
+    private const val INDEX_FILE = "levels-v1.idx"
+    private const val INDEX_MAGIC = 0x43504C31
+
     private const val VALID_SYMBOLS = ".UDLRVBQWEA"
 
     @Volatile
-    private var cache: Map<Int, PrebuiltLevel>? = null
+    private var dataFile: File? = null
 
-    /**
-     * Загружает конкретный уровень.
-     * Возвращает null, если уровень отсутствует
-     * или его данные некорректны.
-     */
+    @Volatile
+    private var offsets: LongArray? = null
+
+    @Synchronized
     fun load(context: Context, level: Int): PrebuiltLevel? {
-        if (level !in 1..MAX_LEVEL) {
-            return null
-        }
+        if (level !in 1..MAX_LEVEL) return null
 
-        return loadAll(context)[level]
+        return try {
+            val file = getDataFile(context)
+            val index = getOffsets(context, file)
+            val offset = index[level]
+
+            if (offset < 0L) return null
+
+            RandomAccessFile(file, "r").use { raf ->
+                raf.seek(offset)
+                val line = raf.readLine() ?: return null
+                parseLine(line)
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
-    /**
-     * Загружает и проверяет уровни из assets/levels.dat.
-     * Результат кешируется, чтобы не читать файл повторно.
-     */
-    private fun loadAll(context: Context): Map<Int, PrebuiltLevel> {
-        cache?.let { return it }
-
-        return synchronized(this) {
-            cache?.let { return@synchronized it }
-
-            val levels = context.assets
-                .open("levels.dat")
-                .bufferedReader()
-                .useLines { lines ->
-                    lines.mapNotNull { line ->
-                        val parts = line.split('|', limit = 4)
-
-                        if (parts.size != 4) {
-                            return@mapNotNull null
-                        }
-
-                        val level = parts[0].toIntOrNull()
-                            ?: return@mapNotNull null
-
-                        val cols = parts[1].toIntOrNull()
-                            ?: return@mapNotNull null
-
-                        val rows = parts[2].toIntOrNull()
-                            ?: return@mapNotNull null
-
-                        val grid = parts[3]
-
-                        // Проверяем номер уровня и размеры поля.
-                        if (
-                            level !in 1..MAX_LEVEL ||
-                            cols !in 4..10 ||
-                            rows !in 4..10 ||
-                            grid.length != cols * rows
-                        ) {
-                            return@mapNotNull null
-                        }
-
-                        // Проверяем все символы стрелок.
-                        if (grid.any { it !in VALID_SYMBOLS }) {
-                            return@mapNotNull null
-                        }
-
-                        PrebuiltLevel(
-                            level = level,
-                            cols = cols,
-                            rows = rows,
-                            grid = grid
-                        )
-                    }.associateBy { it.level }
-                }
-
-            cache = levels
-            levels
+    @Synchronized
+    private fun getDataFile(context: Context): File {
+        dataFile?.let {
+            if (it.isFile) return it
         }
+
+        val target = File(context.filesDir, DATA_FILE)
+
+        if (!target.isFile || target.length() == 0L) {
+            val temp = File(context.filesDir, "$DATA_FILE.tmp")
+
+            context.assets.open("levels.dat").use { input ->
+                temp.outputStream().buffered().use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            if (target.exists()) target.delete()
+
+            if (!temp.renameTo(target)) {
+                temp.copyTo(target, overwrite = true)
+                temp.delete()
+            }
+
+            File(context.filesDir, INDEX_FILE).delete()
+        }
+
+        dataFile = target
+        return target
+    }
+
+    @Synchronized
+    private fun getOffsets(
+        context: Context,
+        file: File
+    ): LongArray {
+        offsets?.let { return it }
+
+        val indexFile = File(context.filesDir, INDEX_FILE)
+
+        val cached = readIndex(indexFile, file.length())
+        if (cached != null) {
+            offsets = cached
+            return cached
+        }
+
+        val result = LongArray(MAX_LEVEL + 1) { -1L }
+
+        RandomAccessFile(file, "r").use { raf ->
+            while (raf.filePointer < raf.length()) {
+                val position = raf.filePointer
+                val line = raf.readLine() ?: break
+                val separator = line.indexOf('|')
+
+                if (separator <= 0) continue
+
+                val level = line.substring(0, separator).toIntOrNull()
+                    ?: continue
+
+                if (level in 1..MAX_LEVEL) {
+                    result[level] = position
+                }
+            }
+        }
+
+        writeIndex(indexFile, file.length(), result)
+        offsets = result
+        return result
+    }
+
+    private fun readIndex(
+        file: File,
+        expectedDataLength: Long
+    ): LongArray? {
+        if (!file.isFile) return null
+
+        return try {
+            DataInputStream(
+                BufferedInputStream(file.inputStream())
+            ).use { input ->
+                if (input.readInt() != INDEX_MAGIC) return null
+                if (input.readLong() != expectedDataLength) return null
+                if (input.readInt() != MAX_LEVEL) return null
+
+                LongArray(MAX_LEVEL + 1) {
+                    input.readLong()
+                }.takeIf { input.read() == -1 }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun writeIndex(
+        file: File,
+        dataLength: Long,
+        positions: LongArray
+    ) {
+        val temp = File(file.parentFile, "${file.name}.tmp")
+
+        try {
+            DataOutputStream(
+                BufferedOutputStream(temp.outputStream())
+            ).use { output ->
+                output.writeInt(INDEX_MAGIC)
+                output.writeLong(dataLength)
+                output.writeInt(MAX_LEVEL)
+
+                positions.forEach { output.writeLong(it) }
+            }
+
+            if (file.exists()) file.delete()
+
+            if (!temp.renameTo(file)) {
+                temp.copyTo(file, overwrite = true)
+                temp.delete()
+            }
+        } catch (_: Exception) {
+            temp.delete()
+        }
+    }
+
+    private fun parseLine(line: String): PrebuiltLevel? {
+        val first = line.indexOf('|')
+        if (first <= 0) return null
+
+        val second = line.indexOf('|', first + 1)
+        if (second <= first + 1) return null
+
+        val third = line.indexOf('|', second + 1)
+        if (third <= second + 1) return null
+
+        val level = line.substring(0, first).toIntOrNull()
+            ?: return null
+        val cols = line.substring(first + 1, second).toIntOrNull()
+            ?: return null
+        val rows = line.substring(second + 1, third).toIntOrNull()
+            ?: return null
+        val grid = line.substring(third + 1)
+
+        if (level !in 1..MAX_LEVEL) return null
+        if (cols !in 4..10 || rows !in 4..10) return null
+        if (grid.length != cols * rows) return null
+        if (grid.any { it !in VALID_SYMBOLS }) return null
+
+        return PrebuiltLevel(level, cols, rows, grid)
     }
 }
