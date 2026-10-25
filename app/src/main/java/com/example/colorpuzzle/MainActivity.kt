@@ -78,14 +78,12 @@ class MainActivity :
         }
 
         puzzleView.onGameEventListener = this
-        puzzleView.loadLevel(level)
 
-        val savedBoard = prefs.getString("board_state", null)
-        if (savedBoard.isNullOrBlank() ||
-            !puzzleView.restoreState(savedBoard)
-        ) {
-            puzzleView.loadLevel(level)
-            saveProgress()
+        // Откладываем загрузку и восстановление поля до завершения отрисовки UI,
+        // чтобы избежать зависания приложения на экране заставки.
+        puzzleView.post {
+            setupGameLevel()
+            updateUI()
         }
 
         btnRestart.setOnClickListener {
@@ -97,6 +95,19 @@ class MainActivity :
         }
 
         updateUI()
+    }
+
+    private fun setupGameLevel() {
+        try {
+            val savedBoard = prefs.getString("board_state", null)
+            if (savedBoard.isNullOrBlank() || !puzzleView.restoreState(savedBoard)) {
+                puzzleView.loadLevel(level)
+                saveProgress()
+            }
+        } catch (_: Exception) {
+            puzzleView.loadLevel(level)
+            saveProgress()
+        }
     }
 
     private fun loadPreferences() {
