@@ -11,7 +11,7 @@ data class PrebuiltLevel(
 
 object PrebuiltLevelCatalog {
 
-    const val MAX_LEVEL = 100_000
+    const val MAX_LEVEL = 500_000
 
     // Все символы, которые использует генератор уровней.
     // U — вверх, D — вниз, L — влево, R — вправо,
