@@ -1,3 +1,4 @@
+
 name: Build ColorPuzzle APK
 
 on:
@@ -86,6 +87,9 @@ jobs:
           print(f"Verified {len(lines)} level records.")
           print(f"Symbols found: {sorted(seen_symbols)}")
           PY
+
+      - name: Verify solvability of all 500000 levels
+        run: python3 tools/validate_levels.py
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
