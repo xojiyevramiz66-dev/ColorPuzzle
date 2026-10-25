@@ -1,3 +1,4 @@
+
 package com.example.colorpuzzle
 
 import android.content.Context
@@ -53,6 +54,9 @@ class MainActivity :
     private var toneGenerator: ToneGenerator? = null
     private var musicPlayer: MusicPlayer? = null
 
+    private var catalogPreparing = false
+    private var gameReady = false
+
     private fun tr(ru: String, en: String): String =
         if (language == "ru") ru else en
 
@@ -79,15 +83,12 @@ class MainActivity :
 
         puzzleView.onGameEventListener = this
 
-        // Откладываем загрузку и восстановление поля до завершения отрисовки UI,
-        // чтобы избежать зависания приложения на экране заставки.
-        puzzleView.post {
-            setupGameLevel()
-            updateUI()
-        }
-
         btnRestart.setOnClickListener {
-            restartCurrentLevel()
+            if (gameReady) {
+                restartCurrentLevel()
+            } else {
+                showPreparingMessage()
+            }
         }
 
         btnSettings.setOnClickListener {
@@ -95,16 +96,84 @@ class MainActivity :
         }
 
         updateUI()
+
+        // Сначала подготавливаем каталог уровней в фоновом потоке.
+        // Не выполняем сканирование levels.dat в главном потоке UI.
+        prepareLevelCatalog()
+    }
+
+    private fun prepareLevelCatalog() {
+        if (catalogPreparing || gameReady) return
+
+        catalogPreparing = true
+
+        Thread {
+            try {
+                PrebuiltLevelCatalog.prepare(applicationContext)
+
+                runOnUiThread {
+                    catalogPreparing = false
+
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+
+                    try {
+                        setupGameLevel()
+                        gameReady = true
+                        updateUI()
+                    } catch (e: Exception) {
+                        gameReady = false
+
+                        Toast.makeText(
+                            this,
+                            tr(
+                                "Не удалось загрузить уровень. Проверьте файл levels.dat.",
+                                "Could not load the level. Check levels.dat."
+                            ),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    catalogPreparing = false
+
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+
+                    Toast.makeText(
+                        this,
+                        tr(
+                            "Ошибка подготовки уровней: проверьте assets/levels.dat",
+                            "Level preparation failed: check assets/levels.dat"
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun showPreparingMessage() {
+        Toast.makeText(
+            this,
+            tr(
+                "Подождите, уровни загружаются.",
+                "Please wait while levels are loading."
+            ),
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun setupGameLevel() {
-        try {
-            val savedBoard = prefs.getString("board_state", null)
-            if (savedBoard.isNullOrBlank() || !puzzleView.restoreState(savedBoard)) {
-                puzzleView.loadLevel(level)
-                saveProgress()
-            }
+        val savedBoard = prefs.getString("board_state", null)
+
+        val restored = try {
+            !savedBoard.isNullOrBlank() &&
+                puzzleView.restoreState(savedBoard)
         } catch (_: Exception) {
+            false
+        }
+
+        if (!restored) {
             puzzleView.loadLevel(level)
             saveProgress()
         }
@@ -112,6 +181,7 @@ class MainActivity :
 
     private fun loadPreferences() {
         language = prefs.getString("language", "ru") ?: "ru"
+
         if (language != "ru" && language != "en") {
             language = "ru"
         }
@@ -146,8 +216,16 @@ class MainActivity :
             "THINK. FIND THE WAY. CLEAR THE BLOCKS."
         )
 
-        levelCaption.text = tr("ТЕКУЩИЙ УРОВЕНЬ", "CURRENT LEVEL")
-        tvLevel.text = tr("Уровень $level", "Level $level")
+        levelCaption.text = tr(
+            "ТЕКУЩИЙ УРОВЕНЬ",
+            "CURRENT LEVEL"
+        )
+
+        tvLevel.text = tr(
+            "Уровень $level",
+            "Level $level"
+        )
+
         livesCaption.text = tr("ЖИЗНИ", "LIVES")
         tvLives.text = "❤️".repeat(lives.coerceAtLeast(0))
 
@@ -175,6 +253,8 @@ class MainActivity :
             "Открыть настройки",
             "Open settings"
         )
+
+        btnRestart.isEnabled = gameReady
     }
 
     private fun showSettingsDialog() {
@@ -196,12 +276,17 @@ class MainActivity :
         addLabel(tr("Язык интерфейса", "Interface language"))
 
         val languageSpinner = Spinner(this)
+
         languageSpinner.adapter = ArrayAdapter(
             this,
             android.R.layout.simple_spinner_dropdown_item,
             listOf("Русский", "English")
         )
-        languageSpinner.setSelection(if (language == "ru") 0 else 1)
+
+        languageSpinner.setSelection(
+            if (language == "ru") 0 else 1
+        )
+
         content.addView(languageSpinner)
 
         val soundSwitch = Switch(this).apply {
@@ -209,6 +294,7 @@ class MainActivity :
             isChecked = soundEnabled
             setPadding(0, dp(12), 0, dp(8))
         }
+
         content.addView(soundSwitch)
 
         val musicSwitch = Switch(this).apply {
@@ -216,6 +302,7 @@ class MainActivity :
             isChecked = musicEnabled
             setPadding(0, dp(8), 0, dp(8))
         }
+
         content.addView(musicSwitch)
 
         val vibrationSwitch = Switch(this).apply {
@@ -223,6 +310,7 @@ class MainActivity :
             isChecked = vibrationEnabled
             setPadding(0, dp(8), 0, dp(8))
         }
+
         content.addView(vibrationSwitch)
 
         val dialog = AlertDialog.Builder(this)
@@ -237,7 +325,11 @@ class MainActivity :
                 .setOnClickListener {
                     language = if (
                         languageSpinner.selectedItemPosition == 0
-                    ) "ru" else "en"
+                    ) {
+                        "ru"
+                    } else {
+                        "en"
+                    }
 
                     soundEnabled = soundSwitch.isChecked
                     musicEnabled = musicSwitch.isChecked
@@ -251,12 +343,16 @@ class MainActivity :
                         .apply()
 
                     musicPlayer?.setEnabled(musicEnabled)
+
                     updateUI()
                     saveProgress()
 
                     Toast.makeText(
                         this,
-                        tr("Настройки сохранены", "Settings saved"),
+                        tr(
+                            "Настройки сохранены",
+                            "Settings saved"
+                        ),
                         Toast.LENGTH_SHORT
                     ).show()
 
@@ -268,7 +364,10 @@ class MainActivity :
     }
 
     override fun onWrongMove() {
+        if (!gameReady) return
+
         lives = (lives - 1).coerceAtLeast(0)
+
         playSound(success = false)
         vibrate(120)
 
@@ -287,7 +386,10 @@ class MainActivity :
         } else {
             Toast.makeText(
                 this,
-                tr("Путь заблокирован!", "Path is blocked!"),
+                tr(
+                    "Путь заблокирован!",
+                    "Path is blocked!"
+                ),
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -297,17 +399,37 @@ class MainActivity :
     }
 
     override fun onMoveMade() {
+        if (!gameReady) return
+
         playSound(success = true)
         vibrate(25)
         saveProgress()
     }
 
     override fun onLevelCompleted() {
+        if (!gameReady) return
+
         val completedLevel = level
         level++
         lives = DEFAULT_LIVES
 
-        puzzleView.loadLevel(level)
+        try {
+            puzzleView.loadLevel(level)
+        } catch (_: Exception) {
+            level = completedLevel
+
+            Toast.makeText(
+                this,
+                tr(
+                    "Не удалось загрузить следующий уровень.",
+                    "Could not load the next level."
+                ),
+                Toast.LENGTH_LONG
+            ).show()
+
+            return
+        }
+
         updateUI()
         saveProgress()
 
@@ -325,14 +447,31 @@ class MainActivity :
     }
 
     private fun restartCurrentLevel() {
+        if (!gameReady) {
+            showPreparingMessage()
+            return
+        }
+
         lives = DEFAULT_LIVES
-        puzzleView.loadLevel(level)
-        updateUI()
-        saveProgress()
+
+        try {
+            puzzleView.loadLevel(level)
+            updateUI()
+            saveProgress()
+        } catch (_: Exception) {
+            Toast.makeText(
+                this,
+                tr(
+                    "Не удалось перезапустить уровень.",
+                    "Could not restart the level."
+                ),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun saveProgress() {
-        if (!::puzzleView.isInitialized) return
+        if (!::puzzleView.isInitialized || !gameReady) return
 
         try {
             prefs.edit()
@@ -354,8 +493,11 @@ class MainActivity :
 
         try {
             toneGenerator?.startTone(
-                if (success) ToneGenerator.TONE_PROP_ACK
-                else ToneGenerator.TONE_PROP_NACK,
+                if (success) {
+                    ToneGenerator.TONE_PROP_ACK
+                } else {
+                    ToneGenerator.TONE_PROP_NACK
+                },
                 if (success) 90 else 160
             )
         } catch (_: Exception) {
@@ -368,11 +510,16 @@ class MainActivity :
         if (!vibrationEnabled) return
 
         try {
-            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                getSystemService(VibratorManager::class.java).defaultVibrator
-            } else {
-                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            }
+            val vibrator =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    getSystemService(
+                        VibratorManager::class.java
+                    ).defaultVibrator
+                } else {
+                    getSystemService(
+                        Context.VIBRATOR_SERVICE
+                    ) as Vibrator
+                }
 
             if (!vibrator.hasVibrator()) return
 
@@ -402,6 +549,7 @@ class MainActivity :
 
     override fun onResume() {
         super.onResume()
+
         if (::puzzleView.isInitialized) {
             musicPlayer?.setEnabled(musicEnabled)
         }
