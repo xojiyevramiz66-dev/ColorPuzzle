@@ -1,8 +1,7 @@
+
 package com.example.colorpuzzle
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
@@ -24,7 +23,6 @@ object PrebuiltLevelCatalog {
     private const val DATA_FILE = "levels-v1.dat"
     private const val INDEX_FILE = "levels-v1.idx"
     private const val INDEX_MAGIC = 0x43504C31
-
     private const val VALID_SYMBOLS = ".UDLRVBQWEA"
 
     @Volatile
@@ -34,18 +32,25 @@ object PrebuiltLevelCatalog {
     private var offsets: LongArray? = null
 
     /**
-     * Безопасная синхронная загрузка с защитой от блокировки UI.
-     * Если индекс еще не построен, возвращает null, чтобы игра сгенерировала уровень процедурно,
-     * а индексация выполнится в фоне.
+     * Подготавливает файл и индекс уровней.
+     * ВАЖНО: вызывать из фонового потока.
      */
+    @Synchronized
+    fun prepare(context: Context) {
+        val appContext = context.applicationContext
+        val file = getDataFile(appContext)
+        getOffsets(appContext, file)
+    }
+
     @Synchronized
     fun load(context: Context, level: Int): PrebuiltLevel? {
         if (level !in 1..MAX_LEVEL) return null
 
         return try {
-            val file = getDataFile(context)
-            val index = getOffsetsFast(context, file) ?: return null
-            val offset = index.getOrNull(level) ?: -1L
+            val appContext = context.applicationContext
+            val file = getDataFile(appContext)
+            val index = getOffsets(appContext, file)
+            val offset = index[level]
 
             if (offset < 0L) return null
 
@@ -59,40 +64,10 @@ object PrebuiltLevelCatalog {
         }
     }
 
-    /**
-     * Быстрая проверка индекса: если он еще не готов, возвращаем null вместо долгого парсинга.
-     */
-    private fun getOffsetsFast(context: Context, file: File): LongArray? {
-        offsets?.let { return it }
-
-        val indexFile = File(context.filesDir, INDEX_FILE)
-        val cached = readIndex(indexFile, file.length())
-        if (cached != null) {
-            offsets = cached
-            return cached
-        }
-
-        // Если индекс не сгенерирован, отдаем пустой массив, чтобы не вешать главный поток.
-        // Полная индексация будет запущена в фоне.
-        return null
-    }
-
-    /**
-     * Метод для предварительной инициализации в фоновом потоке.
-     * Вызовите его из корутины при старте приложения, чтобы подготовить уровни.
-     */
-    suspend fun preloadAsync(context: Context) = withContext(Dispatchers.IO) {
-        try {
-            val file = getDataFile(context)
-            getOffsets(context, file)
-        } catch (_: Exception) {
-        }
-    }
-
     @Synchronized
     private fun getDataFile(context: Context): File {
         dataFile?.let {
-            if (it.isFile) return it
+            if (it.isFile && it.length() > 0L) return it
         }
 
         val target = File(context.filesDir, DATA_FILE)
@@ -114,6 +89,11 @@ object PrebuiltLevelCatalog {
             }
 
             File(context.filesDir, INDEX_FILE).delete()
+            offsets = null
+        }
+
+        check(target.isFile && target.length() > 0L) {
+            "Не удалось подготовить levels.dat"
         }
 
         dataFile = target
@@ -145,11 +125,12 @@ object PrebuiltLevelCatalog {
 
                 if (separator <= 0) continue
 
-                val level = line.substring(0, separator).toIntOrNull()
-                    ?: continue
+                val parsedLevel =
+                    line.substring(0, separator).toIntOrNull()
+                        ?: continue
 
-                if (level in 1..MAX_LEVEL) {
-                    result[level] = position
+                if (parsedLevel in 1..MAX_LEVEL) {
+                    result[parsedLevel] = position
                 }
             }
         }
@@ -173,9 +154,12 @@ object PrebuiltLevelCatalog {
                 if (input.readLong() != expectedDataLength) return null
                 if (input.readInt() != MAX_LEVEL) return null
 
-                LongArray(MAX_LEVEL + 1) {
+                val values = LongArray(MAX_LEVEL + 1) {
                     input.readLong()
-                }.takeIf { input.read() == -1 }
+                }
+
+                if (input.read() != -1) return null
+                values
             }
         } catch (_: Exception) {
             null
@@ -197,7 +181,9 @@ object PrebuiltLevelCatalog {
                 output.writeLong(dataLength)
                 output.writeInt(MAX_LEVEL)
 
-                positions.forEach { output.writeLong(it) }
+                positions.forEach {
+                    output.writeLong(it)
+                }
             }
 
             if (file.exists()) file.delete()
@@ -208,6 +194,7 @@ object PrebuiltLevelCatalog {
             }
         } catch (_: Exception) {
             temp.delete()
+            // При следующем запуске индекс можно создать заново.
         }
     }
 
@@ -221,12 +208,17 @@ object PrebuiltLevelCatalog {
         val third = line.indexOf('|', second + 1)
         if (third <= second + 1) return null
 
-        val level = line.substring(0, first).toIntOrNull()
-            ?: return null
-        val cols = line.substring(first + 1, second).toIntOrNull()
-            ?: return null
-        val rows = line.substring(second + 1, third).toIntOrNull()
-            ?: return null
+        val level =
+            line.substring(0, first).toIntOrNull() ?: return null
+
+        val cols =
+            line.substring(first + 1, second).toIntOrNull()
+                ?: return null
+
+        val rows =
+            line.substring(second + 1, third).toIntOrNull()
+                ?: return null
+
         val grid = line.substring(third + 1)
 
         if (level !in 1..MAX_LEVEL) return null
