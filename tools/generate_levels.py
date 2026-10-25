@@ -7,7 +7,7 @@ import random
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "app" / "src" / "main" / "assets" / "levels.dat"
 
-MAX_LEVEL = 100_000
+MAX_LEVEL = 500_000
 SEED_BASE = 20261024
 
 # U/D/L/R — обычные стрелки.
