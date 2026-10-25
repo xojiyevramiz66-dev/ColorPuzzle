@@ -1,4 +1,3 @@
-
 package com.example.colorpuzzle
 
 import android.animation.Animator
@@ -36,10 +35,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         CORNER_TOP_RIGHT(1, -1),
         CORNER_BOTTOM_LEFT(-1, 1),
         CORNER_BOTTOM_RIGHT(1, 1),
-        CURVE_RIGHT_DOWN(0, 0),
-        CURVE_DOWN_LEFT(0, 0),
-        CURVE_LEFT_UP(0, 0),
-        CURVE_UP_RIGHT(0, 0)
+        CURVE_RIGHT_DOWN(1, 1),
+        CURVE_DOWN_LEFT(-1, 1),
+        CURVE_LEFT_UP(-1, -1),
+        CURVE_UP_RIGHT(1, -1)
     }
 
     private data class Cell(
@@ -115,12 +114,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     init {
         isHapticFeedbackEnabled = true
 
-        // Каталог может ещё не быть подготовлен.
-        // MainActivity загрузит уровень после подготовки каталога.
         try {
             loadLevel(1)
         } catch (_: Exception) {
-            // Ошибка будет обработана повторной загрузкой из MainActivity.
         }
     }
 
@@ -128,10 +124,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         direction: Direction
     ): Pair<Int, Int> {
         return when (direction) {
-            Direction.CURVE_RIGHT_DOWN -> 0 to 1
-            Direction.CURVE_DOWN_LEFT -> -1 to 0
-            Direction.CURVE_LEFT_UP -> 0 to -1
-            Direction.CURVE_UP_RIGHT -> 1 to 0
+            Direction.CURVE_RIGHT_DOWN -> 1 to 1
+            Direction.CURVE_DOWN_LEFT -> -1 to 1
+            Direction.CURVE_LEFT_UP -> -1 to -1
+            Direction.CURVE_UP_RIGHT -> 1 to -1
             else -> direction.dx to direction.dy
         }
     }
@@ -160,10 +156,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return 0.45f + progress * 0.45f
     }
 
-    /**
-     * Загружает готовый уровень из PrebuiltLevelCatalog.
-     * Если уровень повреждён или отсутствует, сообщает об ошибке.
-     */
     fun loadLevel(level: Int) {
         val requestedLevel = level.coerceIn(
             1,
@@ -312,12 +304,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         return root.toString()
     }
 
-    /**
-     * Восстанавливает сохранённое состояние.
-     *
-     * Пустые, повреждённые и несовместимые сохранения отклоняются.
-     * MainActivity в таком случае загрузит уровень заново.
-     */
     fun restoreState(state: String): Boolean {
         return try {
             val root = JSONObject(state)
@@ -338,7 +324,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             val array = root.getJSONArray("blocks")
 
-            // ИСПРАВЛЕНИЕ: пустое сохранение не считается успешным.
             if (array.length() == 0) return false
 
             val restored = mutableListOf<Cell>()
@@ -390,7 +375,6 @@ class ColorPuzzleView @JvmOverloads constructor(
                 )
             }
 
-            // Дополнительная защита от пустого игрового поля.
             if (restored.isEmpty()) return false
 
             runningAnimator?.cancel()
@@ -511,46 +495,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     private fun countAvailableMoves(source: List<Cell>): Int {
         return source.count { isAvailable(it, source) }
-    }
-
-    private fun createHardLevel(
-        requestedCount: Int,
-        level: Int
-    ): MutableList<Cell> {
-        val target = requestedCount.coerceIn(
-            1,
-            (cols * rows - 1).coerceAtLeast(1)
-        )
-
-        val result = mutableListOf<Cell>()
-        val rng = Random(level)
-
-        for (x in 0 until cols) {
-            if (result.size >= target) break
-
-            val direction = if (rng.nextBoolean()) {
-                Direction.UP
-            } else {
-                Direction.DOWN
-            }
-
-            val columnRows = (0 until rows).shuffled(rng)
-
-            for (y in columnRows) {
-                if (result.size >= target) break
-
-                result.add(
-                    createCell(
-                        id = result.size + 1,
-                        x = x,
-                        y = y,
-                        dirs = listOf(direction)
-                    )
-                )
-            }
-        }
-
-        return result
     }
 
     private fun measureDifficulty(
