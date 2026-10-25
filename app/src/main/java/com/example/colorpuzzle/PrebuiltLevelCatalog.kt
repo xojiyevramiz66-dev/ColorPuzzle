@@ -34,25 +34,32 @@ object PrebuiltLevelCatalog {
     private var offsets: LongArray? = null
 
     /**
-     * Безопасная синхронная загрузка с защитой от блокировки UI.
-     * Если индекс еще не построен, возвращает null, чтобы игра сгенерировала уровень процедурно,
-     * а индексация выполнится в фоне.
+     * Загружает строго запрошенный готовый уровень.
+     * Если каталог не готов или данные повреждены, возвращает null.
      */
     @Synchronized
     fun load(context: Context, level: Int): PrebuiltLevel? {
         if (level !in 1..MAX_LEVEL) return null
 
         return try {
-            val file = getDataFile(context)
-            val index = getOffsetsFast(context, file) ?: return null
-            val offset = index.getOrNull(level) ?: -1L
+            val appContext = context.applicationContext
+            val file = getDataFile(appContext)
+            val index = getOffsetsFast(appContext, file)
+                ?: return null
 
+            val offset = index.getOrNull(level) ?: -1L
             if (offset < 0L) return null
 
             RandomAccessFile(file, "r").use { raf ->
                 raf.seek(offset)
                 val line = raf.readLine() ?: return null
-                parseLine(line)
+                val parsed = parseLine(line) ?: return null
+
+                if (parsed.level != level) {
+                    return null
+                }
+
+                parsed
             }
         } catch (_: Exception) {
             null
@@ -60,45 +67,57 @@ object PrebuiltLevelCatalog {
     }
 
     /**
-     * Быстрая проверка индекса: если он еще не готов, возвращаем null вместо долгого парсинга.
+     * Готовит файл уровней и индекс в фоновом потоке.
+     * Вызывать перед началом игры.
      */
-    private fun getOffsetsFast(context: Context, file: File): LongArray? {
+    suspend fun preloadAsync(context: Context) {
+        withContext(Dispatchers.IO) {
+            prepare(context)
+        }
+    }
+
+    /**
+     * Синхронная подготовка каталога.
+     * Обязательно вызывайте из фонового потока.
+     */
+    fun prepare(context: Context) {
+        val appContext = context.applicationContext
+        val file = getDataFile(appContext)
+        getOffsets(appContext, file)
+    }
+
+    private fun getOffsetsFast(
+        context: Context,
+        file: File
+    ): LongArray? {
         offsets?.let { return it }
 
         val indexFile = File(context.filesDir, INDEX_FILE)
         val cached = readIndex(indexFile, file.length())
+
         if (cached != null) {
             offsets = cached
             return cached
         }
 
-        // Если индекс не сгенерирован, отдаем пустой массив, чтобы не вешать главный поток.
-        // Полная индексация будет запущена в фоне.
         return null
-    }
-
-    /**
-     * Метод для предварительной инициализации в фоновом потоке.
-     * Вызовите его из корутины при старте приложения, чтобы подготовить уровни.
-     */
-    suspend fun preloadAsync(context: Context) = withContext(Dispatchers.IO) {
-        try {
-            val file = getDataFile(context)
-            getOffsets(context, file)
-        } catch (_: Exception) {
-        }
     }
 
     @Synchronized
     private fun getDataFile(context: Context): File {
         dataFile?.let {
-            if (it.isFile) return it
+            if (it.isFile && it.length() > 0L) {
+                return it
+            }
         }
 
         val target = File(context.filesDir, DATA_FILE)
 
         if (!target.isFile || target.length() == 0L) {
-            val temp = File(context.filesDir, "$DATA_FILE.tmp")
+            val temp = File(
+                context.filesDir,
+                "$DATA_FILE.tmp"
+            )
 
             context.assets.open("levels.dat").use { input ->
                 temp.outputStream().buffered().use { output ->
@@ -106,7 +125,11 @@ object PrebuiltLevelCatalog {
                 }
             }
 
-            if (target.exists()) target.delete()
+            if (target.exists() && !target.delete()) {
+                throw IllegalStateException(
+                    "Не удалось заменить файл уровней"
+                )
+            }
 
             if (!temp.renameTo(target)) {
                 temp.copyTo(target, overwrite = true)
@@ -114,6 +137,13 @@ object PrebuiltLevelCatalog {
             }
 
             File(context.filesDir, INDEX_FILE).delete()
+            offsets = null
+        }
+
+        if (!target.isFile || target.length() == 0L) {
+            throw IllegalStateException(
+                "Файл levels.dat пуст или не найден"
+            )
         }
 
         dataFile = target
@@ -145,17 +175,26 @@ object PrebuiltLevelCatalog {
 
                 if (separator <= 0) continue
 
-                val level = line.substring(0, separator).toIntOrNull()
+                val parsedLevel = line
+                    .substring(0, separator)
+                    .toIntOrNull()
                     ?: continue
 
-                if (level in 1..MAX_LEVEL) {
-                    result[level] = position
+                if (parsedLevel in 1..MAX_LEVEL) {
+                    result[parsedLevel] = position
                 }
             }
         }
 
+        if (result.drop(1).none { it >= 0L }) {
+            throw IllegalStateException(
+                "В каталоге не найдены готовые уровни"
+            )
+        }
+
         writeIndex(indexFile, file.length(), result)
         offsets = result
+
         return result
     }
 
@@ -169,9 +208,17 @@ object PrebuiltLevelCatalog {
             DataInputStream(
                 BufferedInputStream(file.inputStream())
             ).use { input ->
-                if (input.readInt() != INDEX_MAGIC) return null
-                if (input.readLong() != expectedDataLength) return null
-                if (input.readInt() != MAX_LEVEL) return null
+                if (input.readInt() != INDEX_MAGIC) {
+                    return null
+                }
+
+                if (input.readLong() != expectedDataLength) {
+                    return null
+                }
+
+                if (input.readInt() != MAX_LEVEL) {
+                    return null
+                }
 
                 LongArray(MAX_LEVEL + 1) {
                     input.readLong()
@@ -187,7 +234,10 @@ object PrebuiltLevelCatalog {
         dataLength: Long,
         positions: LongArray
     ) {
-        val temp = File(file.parentFile, "${file.name}.tmp")
+        val temp = File(
+            file.parentFile,
+            "${file.name}.tmp"
+        )
 
         try {
             DataOutputStream(
@@ -197,17 +247,24 @@ object PrebuiltLevelCatalog {
                 output.writeLong(dataLength)
                 output.writeInt(MAX_LEVEL)
 
-                positions.forEach { output.writeLong(it) }
+                positions.forEach { offset ->
+                    output.writeLong(offset)
+                }
             }
 
-            if (file.exists()) file.delete()
+            if (file.exists() && !file.delete()) {
+                throw IllegalStateException(
+                    "Не удалось заменить индекс уровней"
+                )
+            }
 
             if (!temp.renameTo(file)) {
                 temp.copyTo(file, overwrite = true)
                 temp.delete()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             temp.delete()
+            throw e
         }
     }
 
@@ -223,10 +280,17 @@ object PrebuiltLevelCatalog {
 
         val level = line.substring(0, first).toIntOrNull()
             ?: return null
-        val cols = line.substring(first + 1, second).toIntOrNull()
-            ?: return null
-        val rows = line.substring(second + 1, third).toIntOrNull()
-            ?: return null
+
+        val cols = line.substring(
+            first + 1,
+            second
+        ).toIntOrNull() ?: return null
+
+        val rows = line.substring(
+            second + 1,
+            third
+        ).toIntOrNull() ?: return null
+
         val grid = line.substring(third + 1)
 
         if (level !in 1..MAX_LEVEL) return null
@@ -234,6 +298,11 @@ object PrebuiltLevelCatalog {
         if (grid.length != cols * rows) return null
         if (grid.any { it !in VALID_SYMBOLS }) return null
 
-        return PrebuiltLevel(level, cols, rows, grid)
+        return PrebuiltLevel(
+            level = level,
+            cols = cols,
+            rows = rows,
+            grid = grid
+        )
     }
 }
