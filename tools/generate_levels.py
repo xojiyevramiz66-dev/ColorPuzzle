@@ -11,10 +11,9 @@ MAX_LEVEL = 100_000
 SEED_BASE = 20261024
 
 # U/D/L/R — обычные стрелки.
-# V — вверх или вниз; B — влево или вправо.
-# Q/W/E/A — изогнутые стрелки с наконечником
-# вниз/влево/вверх/вправо соответственно.
-# Все блоки двигаются прямо по направлению наконечника.
+# V — вверх или вниз.
+# B — влево или вправо.
+# Q/W/E/A — дополнительные типы стрелок.
 SYMBOL_DIRECTIONS = {
     "U": ((0, -1),),
     "D": ((0, 1),),
@@ -28,8 +27,7 @@ SYMBOL_DIRECTIONS = {
     "A": ((1, 0),),
 }
 
-# Обычные стрелки встречаются чаще.
-# Изогнутые стрелки остаются редкими.
+# Базовые веса обычных стрелок.
 SYMBOL_WEIGHTS = {
     "U": 10,
     "D": 10,
@@ -53,7 +51,7 @@ ALL_DIRECTIONS = tuple(
 
 
 def board_size(level: int) -> tuple[int, int]:
-    """Возвращает размер игрового поля для уровня."""
+    """Возвращает размер поля для уровня."""
     stage = (max(1, level) - 1) // 5
 
     for first in range(4, 11):
@@ -68,20 +66,23 @@ def board_size(level: int) -> tuple[int, int]:
 
 
 def density_for_level(level: int) -> float:
-    """Плотность заполнения игрового поля."""
+    """Постепенно увеличивает плотность игрового поля."""
+    if level <= 100:
+        return 0.68 + 0.10 * ((level - 1) / 99)
+
     if level <= 1_000:
-        return 0.60 + 0.10 * ((level - 1) / 999)
+        return 0.78 + 0.08 * ((level - 101) / 899)
 
     if level <= 10_000:
-        return 0.70 + 0.10 * ((level - 1_001) / 8_999)
+        return 0.86 + 0.06 * ((level - 1_001) / 8_999)
 
     if level <= 50_000:
-        return 0.80 + 0.08 * ((level - 10_001) / 39_999)
+        return 0.92 + 0.04 * ((level - 10_001) / 39_999)
 
     if level <= 90_000:
-        return 0.88 + 0.06 * ((level - 50_001) / 39_999)
+        return 0.96 + 0.015 * ((level - 50_001) / 39_999)
 
-    return 0.94 + 0.03 * ((level - 90_001) / 9_999)
+    return 0.975 + 0.015 * ((level - 90_001) / 9_999)
 
 
 def ray_clear(
@@ -92,7 +93,7 @@ def ray_clear(
     cols: int,
     rows: int,
 ) -> bool:
-    """Проверяет свободный прямой путь."""
+    """Проверяет, свободен ли прямой путь от блока до края поля."""
     dx, dy = direction
     x += dx
     y += dy
@@ -110,29 +111,58 @@ def ray_clear(
 def choose_symbol(
     free_directions: list[tuple[int, int]],
     rng: random.Random,
+    level: int,
 ) -> str:
-    """Выбирает доступную стрелку с учётом её веса."""
+    """Выбирает стрелку, все направления которой свободны."""
     choices = [
         symbol
         for symbol, directions in SYMBOL_DIRECTIONS.items()
-        if any(
+        if all(
             direction in free_directions
             for direction in directions
         )
     ]
 
     if not choices:
-        raise RuntimeError("Не найден доступный тип стрелки")
+        raise RuntimeError(
+            "Не найден доступный тип стрелки"
+        )
+
+    progress = min(
+        1.0,
+        max(0.0, (level - 1) / (MAX_LEVEL - 1)),
+    )
+
+    # Чем выше уровень, тем чаще встречаются двунаправленные блоки.
+    multi_weight = 3 + int(progress * 9)
+
+    # Изогнутые стрелки становятся немного чаще.
+    curve_weight = 1 + int(progress * 2)
+
+    weights = []
+
+    for symbol in choices:
+        if symbol in ("V", "B"):
+            weights.append(multi_weight)
+        elif symbol in ("Q", "W", "E", "A"):
+            weights.append(curve_weight)
+        else:
+            weights.append(SYMBOL_WEIGHTS[symbol])
 
     return rng.choices(
         choices,
-        weights=[SYMBOL_WEIGHTS[symbol] for symbol in choices],
+        weights=weights,
         k=1,
     )[0]
 
 
 def generate_level(level: int) -> str:
-    """Создаёт решаемый уровень."""
+    """Создаёт уровень с гарантированным порядком удаления блоков."""
+    if not 1 <= level <= MAX_LEVEL:
+        raise ValueError(
+            f"Номер уровня должен быть от 1 до {MAX_LEVEL}"
+        )
+
     cols, rows = board_size(level)
     total = cols * rows
 
@@ -140,7 +170,10 @@ def generate_level(level: int) -> str:
 
     target = max(
         1,
-        min(total - 1, int(total * density_for_level(level))),
+        min(
+            total - 1,
+            int(total * density_for_level(level)),
+        ),
     )
 
     positions = [
@@ -154,6 +187,7 @@ def generate_level(level: int) -> str:
 
     by_x = [set() for _ in range(cols)]
     by_y = [set() for _ in range(rows)]
+
     count_x = [0] * cols
     count_y = [0] * rows
 
@@ -163,10 +197,18 @@ def generate_level(level: int) -> str:
         count_x[x] += 1
         count_y[y] += 1
 
-    min_x = min(x for x, count in enumerate(count_x) if count)
-    max_x = max(x for x, count in enumerate(count_x) if count)
-    min_y = min(y for y, count in enumerate(count_y) if count)
-    max_y = max(y for y, count in enumerate(count_y) if count)
+    min_x = min(
+        x for x, count in enumerate(count_x) if count
+    )
+    max_x = max(
+        x for x, count in enumerate(count_x) if count
+    )
+    min_y = min(
+        y for y, count in enumerate(count_y) if count
+    )
+    max_y = max(
+        y for y, count in enumerate(count_y) if count
+    )
 
     grid = ["."] * total
 
@@ -191,8 +233,17 @@ def generate_level(level: int) -> str:
             )
 
         axis, edge = rng.choice(edges)
-        edge_set = by_x[edge] if axis == "x" else by_y[edge]
+
+        edge_set = (
+            by_x[edge]
+            if axis == "x"
+            else by_y[edge]
+        )
+
         x, y = rng.choice(tuple(edge_set))
+
+        # Проверяем пути с учётом оставшихся блоков.
+        occupied_after_removal = remaining - {(x, y)}
 
         free_directions = [
             direction
@@ -201,7 +252,7 @@ def generate_level(level: int) -> str:
                 x,
                 y,
                 direction,
-                remaining - {(x, y)},
+                occupied_after_removal,
                 cols,
                 rows,
             )
@@ -212,15 +263,24 @@ def generate_level(level: int) -> str:
                 f"Не найден доступный ход на уровне {level}"
             )
 
-        symbol = choose_symbol(free_directions, rng)
+        symbol = choose_symbol(
+            free_directions,
+            rng,
+            level,
+        )
+
         grid[y * cols + x] = symbol
 
+        # Удаляем блок из рабочих структур.
         remaining.remove((x, y))
+
         by_x[x].remove((x, y))
         by_y[y].remove((x, y))
+
         count_x[x] -= 1
         count_y[y] -= 1
 
+        # Обновляем границы оставшихся блоков.
         while min_x < cols and count_x[min_x] == 0:
             min_x += 1
 
@@ -237,10 +297,17 @@ def generate_level(level: int) -> str:
 
 
 def main() -> None:
-    """Генерирует levels.dat и печатает статистику."""
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    """Создаёт levels.dat и выводит статистику."""
+    OUTPUT.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    totals = {symbol: 0 for symbol in SYMBOL_DIRECTIONS}
+    totals = {
+        symbol: 0
+        for symbol in SYMBOL_DIRECTIONS
+    }
+
     total_blocks = 0
 
     print(f"Генерация {MAX_LEVEL} уровней...")
@@ -260,11 +327,16 @@ def main() -> None:
                 totals[symbol] += grid.count(symbol)
 
             total_blocks += sum(
-                1 for symbol in grid if symbol != "."
+                1
+                for symbol in grid
+                if symbol != "."
             )
 
             if level % 5_000 == 0:
-                print(f"Создано уровней: {level}/{MAX_LEVEL}")
+                print(
+                    f"Создано уровней: "
+                    f"{level}/{MAX_LEVEL}"
+                )
 
     print()
     print("Генерация завершена.")
@@ -276,7 +348,9 @@ def main() -> None:
 
         for symbol, count in totals.items():
             percent = count * 100 / total_blocks
-            print(f"{symbol}: {count} ({percent:.2f}%)")
+            print(
+                f"{symbol}: {count} ({percent:.2f}%)"
+            )
 
     print(f"\nФайл: {OUTPUT}")
 
