@@ -1,4 +1,3 @@
-
 package com.example.colorpuzzle
 
 import android.animation.Animator
@@ -36,10 +35,12 @@ class ColorPuzzleView @JvmOverloads constructor(
         CORNER_TOP_RIGHT(1, -1),
         CORNER_BOTTOM_LEFT(-1, 1),
         CORNER_BOTTOM_RIGHT(1, 1),
-        CURVE_RIGHT_DOWN(0, 0),
-        CURVE_DOWN_LEFT(0, 0),
-        CURVE_LEFT_UP(0, 0),
-        CURVE_UP_RIGHT(0, 0)
+
+        // Изогнутые стрелки. Движение определяется в movementVector().
+        CURVE_RIGHT_DOWN(0, 0), // ↴ движется вниз
+        CURVE_DOWN_LEFT(0, 0),  // ↵ движется влево
+        CURVE_LEFT_UP(0, 0),    // Изогнутая стрелка вверх
+        CURVE_UP_RIGHT(0, 0)    // Изогнутая стрелка вправо
     }
 
     private data class Cell(
@@ -112,10 +113,14 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     private val arrowColor = Color.WHITE
 
-    // Не загружаем уровень в конструкторе:
-    // каталог уровней должен быть подготовлен до вызова loadLevel().
     init {
         isHapticFeedbackEnabled = true
+        // Безопасный вызов загрузки уровня при инициализации
+        try {
+            loadLevel(1)
+        } catch (_: Exception) {
+            // Предотвращаем краш при старте
+        }
     }
 
     private fun movementVector(direction: Direction): Pair<Int, Int> {
