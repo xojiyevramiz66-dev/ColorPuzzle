@@ -35,12 +35,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         CORNER_TOP_RIGHT(1, -1),
         CORNER_BOTTOM_LEFT(-1, 1),
         CORNER_BOTTOM_RIGHT(1, 1),
-
-        // Изогнутые стрелки. Движение определяется в movementVector().
-        CURVE_RIGHT_DOWN(0, 0), // ↴ движется вниз
-        CURVE_DOWN_LEFT(0, 0),  // ↵ движется влево
-        CURVE_LEFT_UP(0, 0),    // Изогнутая стрелка вверх
-        CURVE_UP_RIGHT(0, 0)    // Изогнутая стрелка вправо
+        CURVE_RIGHT_DOWN(0, 0),
+        CURVE_DOWN_LEFT(0, 0),
+        CURVE_LEFT_UP(0, 0),
+        CURVE_UP_RIGHT(0, 0)
     }
 
     private data class Cell(
@@ -115,15 +113,20 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     init {
         isHapticFeedbackEnabled = true
-        // Безопасный вызов загрузки уровня при инициализации
+
+        // Основная загрузка уровня должна также выполняться
+        // после подготовки каталога в MainActivity.
         try {
             loadLevel(1)
         } catch (_: Exception) {
-            // Предотвращаем краш при старте
+            // Не создаём случайный уровень при ошибке каталога.
+            // MainActivity должна подготовить каталог и повторить загрузку.
         }
     }
 
-    private fun movementVector(direction: Direction): Pair<Int, Int> {
+    private fun movementVector(
+        direction: Direction
+    ): Pair<Int, Int> {
         return when (direction) {
             Direction.CURVE_RIGHT_DOWN -> 0 to 1
             Direction.CURVE_DOWN_LEFT -> -1 to 0
@@ -157,85 +160,89 @@ class ColorPuzzleView @JvmOverloads constructor(
         return 0.45f + progress * 0.45f
     }
 
+    /**
+     * Загружает строго указанный готовый уровень.
+     *
+     * Если уровень отсутствует или повреждён, метод сообщает об ошибке,
+     * а не подменяет его случайно созданной доской.
+     */
     fun loadLevel(level: Int) {
-        runningAnimator?.cancel()
-        runningAnimator = null
-
-        currentLevel = level.coerceIn(
+        val requestedLevel = level.coerceIn(
             1,
             PrebuiltLevelCatalog.MAX_LEVEL
         )
 
-        animatingBlockId = null
-        historyStack.clear()
-        blocks.clear()
-
         val prebuilt = try {
-            PrebuiltLevelCatalog.load(context, currentLevel)
-        } catch (_: Exception) {
-            null
+            PrebuiltLevelCatalog.load(
+                context.applicationContext,
+                requestedLevel
+            )
+        } catch (e: Exception) {
+            throw IllegalStateException(
+                "Не удалось прочитать готовый уровень $requestedLevel",
+                e
+            )
+        } ?: throw IllegalStateException(
+            "Готовый уровень $requestedLevel не найден. " +
+                "Проверь assets/levels.dat и индекс уровней."
+        )
+
+        require(prebuilt.level == requestedLevel) {
+            "Ожидался уровень $requestedLevel, " +
+                "но получен ${prebuilt.level}"
         }
 
-        val dimensions = prebuilt?.let {
-            if (
-                it.cols in 4..10 &&
-                it.rows in 4..10 &&
-                it.grid.length == it.cols * it.rows
-            ) {
-                it.cols to it.rows
-            } else {
-                null
-            }
-        } ?: calculateBoardSize(currentLevel)
-
-        cols = dimensions.first
-        rows = dimensions.second
-
-        val totalCells = cols * rows
-
-        val requestedCount = minOf(
-            totalCells - 1,
-            (totalCells * calculateDensity(currentLevel)).toInt()
-        ).coerceAtLeast(1)
-
-        if (
-            prebuilt != null &&
-            prebuilt.cols == cols &&
-            prebuilt.rows == rows &&
-            prebuilt.grid.length == totalCells
+        require(
+            prebuilt.cols in 4..10 &&
+                prebuilt.rows in 4..10 &&
+                prebuilt.grid.length == prebuilt.cols * prebuilt.rows
         ) {
-            prebuilt.grid.forEachIndexed { index, symbol ->
-                val directions = directionsForSymbol(symbol)
+            "Некорректные размеры готового уровня $requestedLevel"
+        }
 
-                if (directions.isNotEmpty()) {
-                    val x = index % cols
-                    val y = index / cols
+        val newBlocks = mutableListOf<Cell>()
 
-                    val colorIndex = (
-                        currentLevel.toLong() * 31L +
-                            x * 17L +
-                            y * 13L
+        prebuilt.grid.forEachIndexed { index, symbol ->
+            val directions = directionsForSymbol(symbol)
+
+            if (directions.isNotEmpty()) {
+                val x = index % prebuilt.cols
+                val y = index / prebuilt.cols
+
+                val colorIndex = (
+                    requestedLevel.toLong() * 31L +
+                        x * 17L +
+                        y * 13L
                     ).rem(colors.size.toLong()).toInt()
 
-                    blocks.add(
-                        Cell(
-                            id = blocks.size + 1,
-                            gridX = x,
-                            gridY = y,
-                            directions = directions,
-                            colorResId = colors[colorIndex]
-                        )
+                newBlocks.add(
+                    Cell(
+                        id = newBlocks.size + 1,
+                        gridX = x,
+                        gridY = y,
+                        directions = directions,
+                        colorResId = colors[colorIndex]
                     )
-                }
+                )
             }
         }
 
-        if (blocks.isEmpty()) {
-            blocks.clear()
-            blocks.addAll(
-                createHardLevel(requestedCount, currentLevel)
-            )
+        require(newBlocks.isNotEmpty()) {
+            "Готовый уровень $requestedLevel не содержит блоков"
         }
+
+        runningAnimator?.cancel()
+        runningAnimator = null
+
+        currentLevel = requestedLevel
+        animatingBlockId = null
+        historyStack.clear()
+
+        cols = prebuilt.cols
+        rows = prebuilt.rows
+
+        blocks.clear()
+        blocks.addAll(newBlocks)
 
         lastDifficultyMetrics = measureDifficulty(blocks)
 
@@ -244,7 +251,9 @@ class ColorPuzzleView @JvmOverloads constructor(
         invalidate()
     }
 
-    private fun directionsForSymbol(symbol: Char): List<Direction> {
+    private fun directionsForSymbol(
+        symbol: Char
+    ): List<Direction> {
         return when (symbol.uppercaseChar()) {
             'U' -> listOf(Direction.UP)
             'D' -> listOf(Direction.DOWN)
@@ -301,6 +310,7 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
 
         root.put("blocks", array)
+
         return root.toString()
     }
 
@@ -314,7 +324,9 @@ class ColorPuzzleView @JvmOverloads constructor(
 
             if (savedLevel != currentLevel) return false
             if (savedCols != cols || savedRows != rows) return false
-            if (savedCols !in 1..10 || savedRows !in 1..10) return false
+            if (savedCols !in 1..10 || savedRows !in 1..10) {
+                return false
+            }
 
             val array = root.getJSONArray("blocks")
             val restored = mutableListOf<Cell>()
@@ -536,7 +548,9 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     private fun updateBoardGeometry(w: Int, h: Int) {
-        if (w <= 0 || h <= 0 || cols <= 0 || rows <= 0) return
+        if (w <= 0 || h <= 0 || cols <= 0 || rows <= 0) {
+            return
+        }
 
         val availableWidth = w * 0.94f
         val availableHeight = h * 0.90f
@@ -693,7 +707,10 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
     }
 
-    private fun applyAlpha(color: Int, alpha: Int): Int {
+    private fun applyAlpha(
+        color: Int,
+        alpha: Int
+    ): Int {
         return Color.argb(
             alpha.coerceIn(0, 255),
             Color.red(color),
