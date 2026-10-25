@@ -1,4 +1,3 @@
-
 package com.example.colorpuzzle
 
 import android.animation.Animator
@@ -116,18 +115,14 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     init {
         isHapticFeedbackEnabled = true
-        loadLevel(1)
+        // Безопасный вызов загрузки уровня при инициализации
+        try {
+            loadLevel(1)
+        } catch (_: Exception) {
+            // Предотвращаем краш при старте
+        }
     }
 
-    /**
-     * Преобразует графическую форму стрелки
-     * в фактическое направление движения.
-     *
-     * Q / ↴ -> вниз
-     * W / ↵ -> влево
-     * E       -> вверх
-     * A       -> вправо
-     */
     private fun movementVector(direction: Direction): Pair<Int, Int> {
         return when (direction) {
             Direction.CURVE_RIGHT_DOWN -> 0 to 1
@@ -249,20 +244,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         invalidate()
     }
 
-    /**
-     * Преобразует символ уровня в направление стрелки.
-     *
-     * U = вверх
-     * D = вниз
-     * L = влево
-     * R = вправо
-     * V = вверх и вниз
-     * B = влево и вправо
-     * Q = изогнутая, движение вниз
-     * W = изогнутая, движение влево
-     * E = изогнутая, движение вверх
-     * A = изогнутая, движение вправо
-     */
     private fun directionsForSymbol(symbol: Char): List<Direction> {
         return when (symbol.uppercaseChar()) {
             'U' -> listOf(Direction.UP)
@@ -430,9 +411,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         alpha = 255
     )
 
-    /**
-     * Проверяет препятствия вдоль фактического направления движения.
-     */
     private fun isRayBlocked(
         candidateX: Int,
         candidateY: Int,
@@ -501,20 +479,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
     private fun countAvailableMoves(source: List<Cell>): Int {
         return source.count { isAvailable(it, source) }
-    }
-
-    private fun isSolvable(source: List<Cell>): Boolean {
-        val remaining = source.toMutableList()
-
-        while (remaining.isNotEmpty()) {
-            val removable = remaining.firstOrNull {
-                isAvailable(it, remaining)
-            } ?: return false
-
-            remaining.remove(removable)
-        }
-
-        return true
     }
 
     private fun createHardLevel(
@@ -799,8 +763,6 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         )
 
-        // Все четыре формы используют один рисунок,
-        // повёрнутый в нужное направление.
         val curvedRotation = when {
             directions == listOf(Direction.CURVE_RIGHT_DOWN) -> 0f
             directions == listOf(Direction.CURVE_DOWN_LEFT) -> 90f
@@ -959,8 +921,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         val startX = block.currentX
         val startY = block.currentY
 
-        // Движение всегда прямолинейное.
-        // Q — вниз, W — влево, E — вверх, A — вправо.
         val distance = maxOf(width, height).toFloat() +
             cellSize * maxOf(cols, rows)
 
