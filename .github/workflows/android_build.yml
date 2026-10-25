@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Generate 100000 levels
+      - name: Generate 500000 levels
         run: python3 tools/generate_levels.py
 
       - name: Verify generated levels
@@ -40,7 +40,7 @@ jobs:
           path = Path("app/src/main/assets/levels.dat")
           lines = path.read_text(encoding="ascii").splitlines()
 
-          expected_count = 100000
+          expected_count = 500000
           allowed_symbols = set(".UDLRVBQWEA")
 
           assert len(lines) == expected_count, (
