@@ -1,3 +1,4 @@
+
 package com.example.colorpuzzle
 
 import android.animation.Animator
@@ -114,13 +115,12 @@ class ColorPuzzleView @JvmOverloads constructor(
     init {
         isHapticFeedbackEnabled = true
 
-        // Основная загрузка уровня должна также выполняться
-        // после подготовки каталога в MainActivity.
+        // Каталог может ещё не быть подготовлен.
+        // MainActivity загрузит уровень после подготовки каталога.
         try {
             loadLevel(1)
         } catch (_: Exception) {
-            // Не создаём случайный уровень при ошибке каталога.
-            // MainActivity должна подготовить каталог и повторить загрузку.
+            // Ошибка будет обработана повторной загрузкой из MainActivity.
         }
     }
 
@@ -161,10 +161,8 @@ class ColorPuzzleView @JvmOverloads constructor(
     }
 
     /**
-     * Загружает строго указанный готовый уровень.
-     *
-     * Если уровень отсутствует или повреждён, метод сообщает об ошибке,
-     * а не подменяет его случайно созданной доской.
+     * Загружает готовый уровень из PrebuiltLevelCatalog.
+     * Если уровень повреждён или отсутствует, сообщает об ошибке.
      */
     fun loadLevel(level: Int) {
         val requestedLevel = level.coerceIn(
@@ -314,6 +312,12 @@ class ColorPuzzleView @JvmOverloads constructor(
         return root.toString()
     }
 
+    /**
+     * Восстанавливает сохранённое состояние.
+     *
+     * Пустые, повреждённые и несовместимые сохранения отклоняются.
+     * MainActivity в таком случае загрузит уровень заново.
+     */
     fun restoreState(state: String): Boolean {
         return try {
             val root = JSONObject(state)
@@ -323,12 +327,20 @@ class ColorPuzzleView @JvmOverloads constructor(
             val savedRows = root.getInt("rows")
 
             if (savedLevel != currentLevel) return false
-            if (savedCols != cols || savedRows != rows) return false
-            if (savedCols !in 1..10 || savedRows !in 1..10) {
+
+            if (savedCols != cols || savedRows != rows) {
+                return false
+            }
+
+            if (savedCols !in 4..10 || savedRows !in 4..10) {
                 return false
             }
 
             val array = root.getJSONArray("blocks")
+
+            // ИСПРАВЛЕНИЕ: пустое сохранение не считается успешным.
+            if (array.length() == 0) return false
+
             val restored = mutableListOf<Cell>()
             val ids = mutableSetOf<Int>()
             val positions = mutableSetOf<Pair<Int, Int>>()
@@ -341,6 +353,8 @@ class ColorPuzzleView @JvmOverloads constructor(
                 val y = item.getInt("y")
                 val directionText = item.getString("directions")
                 val color = item.getInt("color")
+
+                if (directionText.isBlank()) return false
 
                 val directions = directionText
                     .split(",")
@@ -368,16 +382,22 @@ class ColorPuzzleView @JvmOverloads constructor(
                         gridY = y,
                         directions = directions,
                         colorResId = color,
+                        currentX = 0f,
+                        currentY = 0f,
                         scale = 1f,
                         alpha = 255
                     )
                 )
             }
 
+            // Дополнительная защита от пустого игрового поля.
+            if (restored.isEmpty()) return false
+
             runningAnimator?.cancel()
             runningAnimator = null
 
             animatingBlockId = null
+
             blocks.clear()
             blocks.addAll(restored)
 
