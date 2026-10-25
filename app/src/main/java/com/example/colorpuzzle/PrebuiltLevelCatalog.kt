@@ -7,6 +7,7 @@ import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 
 data class PrebuiltLevel(
@@ -20,6 +21,7 @@ object PrebuiltLevelCatalog {
 
     const val MAX_LEVEL = 500_000
 
+    private const val ASSET_FILE = "levels.dat"
     private const val DATA_FILE = "levels-v1.dat"
     private const val INDEX_FILE = "levels-v1.idx"
     private const val INDEX_MAGIC = 0x43504C31
@@ -32,72 +34,157 @@ object PrebuiltLevelCatalog {
     private var offsets: LongArray? = null
 
     /**
-     * Подготавливает файл и индекс уровней.
-     * ВАЖНО: вызывать из фонового потока.
+     * Подготавливает локальную копию каталога и индекс.
+     * Вызывать из фонового потока.
      */
     @Synchronized
     fun prepare(context: Context) {
         val appContext = context.applicationContext
-        val file = getDataFile(appContext)
-        getOffsets(appContext, file)
+        var file = getDataFile(appContext)
+
+        try {
+            getOffsets(appContext, file)
+        } catch (firstError: Exception) {
+            // Повреждённый кеш можно восстановить из assets APK.
+            invalidateLocalCache(appContext)
+            file = copyAssetToInternalStorage(appContext)
+            dataFile = file
+            offsets = null
+
+            try {
+                getOffsets(appContext, file)
+            } catch (secondError: Exception) {
+                secondError.addSuppressed(firstError)
+                throw IOException(
+                    "Не удалось прочитать каталог уровней из " +
+                        "assets/$ASSET_FILE. Проверьте генерацию уровней.",
+                    secondError
+                )
+            }
+        }
     }
 
     @Synchronized
     fun load(context: Context, level: Int): PrebuiltLevel? {
         if (level !in 1..MAX_LEVEL) return null
 
-        return try {
-            val appContext = context.applicationContext
-            val file = getDataFile(appContext)
-            val index = getOffsets(appContext, file)
-            val offset = index[level]
+        val appContext = context.applicationContext
+        val file = getDataFile(appContext)
+        val index = getOffsets(appContext, file)
+        val offset = index[level]
 
-            if (offset < 0L) return null
+        if (offset < 0L) {
+            throw IOException("В каталоге отсутствует уровень $level.")
+        }
 
-            RandomAccessFile(file, "r").use { raf ->
-                raf.seek(offset)
-                val line = raf.readLine() ?: return null
-                parseLine(line)
+        RandomAccessFile(file, "r").use { raf ->
+            if (offset >= raf.length()) {
+                throw IOException(
+                    "Индекс уровня $level указывает за пределы файла."
+                )
             }
-        } catch (_: Exception) {
-            null
+
+            raf.seek(offset)
+
+            val line = raf.readLine()
+                ?: throw IOException("Не удалось прочитать уровень $level.")
+
+            val parsed = parseLine(line)
+                ?: throw IOException("Запись уровня $level повреждена.")
+
+            if (parsed.level != level) {
+                throw IOException(
+                    "Индекс уровня $level повреждён: " +
+                        "найден уровень ${parsed.level}."
+                )
+            }
+
+            return parsed
         }
     }
 
     @Synchronized
     private fun getDataFile(context: Context): File {
-        dataFile?.let {
-            if (it.isFile && it.length() > 0L) return it
+        dataFile?.let { cached ->
+            if (cached.isFile && cached.length() > 0L) {
+                return cached
+            }
         }
 
         val target = File(context.filesDir, DATA_FILE)
 
-        if (!target.isFile || target.length() == 0L) {
-            val temp = File(context.filesDir, "$DATA_FILE.tmp")
+        if (target.isFile && target.length() > 0L) {
+            dataFile = target
+            return target
+        }
 
-            context.assets.open("levels.dat").use { input ->
+        val copied = copyAssetToInternalStorage(context)
+        dataFile = copied
+        offsets = null
+        return copied
+    }
+
+    private fun copyAssetToInternalStorage(context: Context): File {
+        val target = File(context.filesDir, DATA_FILE)
+        val temp = File(context.filesDir, "$DATA_FILE.tmp")
+
+        try {
+            context.assets.open(ASSET_FILE).use { input ->
                 temp.outputStream().buffered().use { output ->
                     input.copyTo(output)
                 }
             }
 
-            if (target.exists()) target.delete()
-
-            if (!temp.renameTo(target)) {
-                temp.copyTo(target, overwrite = true)
-                temp.delete()
+            if (!temp.isFile || temp.length() == 0L) {
+                throw IOException("Ресурс assets/$ASSET_FILE пуст.")
             }
 
+            replaceFile(temp, target)
             File(context.filesDir, INDEX_FILE).delete()
             offsets = null
-        }
 
-        check(target.isFile && target.length() > 0L) {
-            "Не удалось подготовить levels.dat"
-        }
+            if (!target.isFile || target.length() == 0L) {
+                throw IOException(
+                    "Не удалось сохранить локальную копию $DATA_FILE."
+                )
+            }
 
-        dataFile = target
-        return target
+            return target
+        } catch (error: Exception) {
+            temp.delete()
+
+            throw IOException(
+                "Не удалось открыть или скопировать assets/$ASSET_FILE. " +
+                    "Убедитесь, что levels.dat создан до сборки APK.",
+                error
+            )
+        } finally {
+            temp.delete()
+        }
+    }
+
+    private fun replaceFile(temp: File, target: File) {
+        if (temp.renameTo(target)) return
+
+        try {
+            temp.copyTo(target, overwrite = true)
+        } catch (error: Exception) {
+            throw IOException(
+                "Не удалось заменить файл ${target.name}.",
+                error
+            )
+        } finally {
+            temp.delete()
+        }
+    }
+
+    private fun invalidateLocalCache(context: Context) {
+        dataFile = null
+        offsets = null
+
+        File(context.filesDir, DATA_FILE).delete()
+        File(context.filesDir, INDEX_FILE).delete()
+        File(context.filesDir, "$DATA_FILE.tmp").delete()
     }
 
     @Synchronized
@@ -105,34 +192,50 @@ object PrebuiltLevelCatalog {
         context: Context,
         file: File
     ): LongArray {
-        offsets?.let { return it }
+        offsets?.let { cached ->
+            if (cached.size == MAX_LEVEL + 1) return cached
+        }
 
         val indexFile = File(context.filesDir, INDEX_FILE)
 
-        val cached = readIndex(indexFile, file.length())
-        if (cached != null) {
+        readIndex(indexFile, file.length())?.let { cached ->
             offsets = cached
             return cached
         }
 
         val result = LongArray(MAX_LEVEL + 1) { -1L }
+        var expectedLevel = 1
 
         RandomAccessFile(file, "r").use { raf ->
             while (raf.filePointer < raf.length()) {
                 val position = raf.filePointer
-                val line = raf.readLine() ?: break
-                val separator = line.indexOf('|')
+                val line = raf.readLine()
+                    ?: throw IOException(
+                        "Неожиданный конец файла уровней."
+                    )
 
-                if (separator <= 0) continue
+                val parsed = parseLine(line)
+                    ?: throw IOException(
+                        "Повреждена запись уровня около строки $expectedLevel."
+                    )
 
-                val parsedLevel =
-                    line.substring(0, separator).toIntOrNull()
-                        ?: continue
-
-                if (parsedLevel in 1..MAX_LEVEL) {
-                    result[parsedLevel] = position
+                if (parsed.level != expectedLevel) {
+                    throw IOException(
+                        "Ожидался уровень $expectedLevel, " +
+                            "найден ${parsed.level}."
+                    )
                 }
+
+                result[expectedLevel] = position
+                expectedLevel++
             }
+        }
+
+        if (expectedLevel != MAX_LEVEL + 1) {
+            throw IOException(
+                "В каталоге найдено ${expectedLevel - 1} уровней " +
+                    "вместо $MAX_LEVEL."
+            )
         }
 
         writeIndex(indexFile, file.length(), result)
@@ -159,6 +262,23 @@ object PrebuiltLevelCatalog {
                 }
 
                 if (input.read() != -1) return null
+                if (values[0] != -1L) return null
+
+                var previous = -1L
+
+                for (level in 1..MAX_LEVEL) {
+                    val offset = values[level]
+
+                    if (
+                        offset <= previous ||
+                        offset >= expectedDataLength
+                    ) {
+                        return null
+                    }
+
+                    previous = offset
+                }
+
                 values
             }
         } catch (_: Exception) {
@@ -181,20 +301,15 @@ object PrebuiltLevelCatalog {
                 output.writeLong(dataLength)
                 output.writeInt(MAX_LEVEL)
 
-                positions.forEach {
-                    output.writeLong(it)
+                positions.forEach { position ->
+                    output.writeLong(position)
                 }
             }
 
-            if (file.exists()) file.delete()
-
-            if (!temp.renameTo(file)) {
-                temp.copyTo(file, overwrite = true)
-                temp.delete()
-            }
+            replaceFile(temp, file)
         } catch (_: Exception) {
+            // Индекс — кеш. При необходимости он будет построен заново.
             temp.delete()
-            // При следующем запуске индекс можно создать заново.
         }
     }
 
@@ -225,6 +340,7 @@ object PrebuiltLevelCatalog {
         if (cols !in 4..10 || rows !in 4..10) return null
         if (grid.length != cols * rows) return null
         if (grid.any { it !in VALID_SYMBOLS }) return null
+        if (grid.none { it == '.' }) return null
 
         return PrebuiltLevel(level, cols, rows, grid)
     }
