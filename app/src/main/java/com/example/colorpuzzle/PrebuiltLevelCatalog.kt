@@ -1,6 +1,8 @@
 package com.example.colorpuzzle
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
@@ -31,14 +33,19 @@ object PrebuiltLevelCatalog {
     @Volatile
     private var offsets: LongArray? = null
 
+    /**
+     * Безопасная синхронная загрузка с защитой от блокировки UI.
+     * Если индекс еще не построен, возвращает null, чтобы игра сгенерировала уровень процедурно,
+     * а индексация выполнится в фоне.
+     */
     @Synchronized
     fun load(context: Context, level: Int): PrebuiltLevel? {
         if (level !in 1..MAX_LEVEL) return null
 
         return try {
             val file = getDataFile(context)
-            val index = getOffsets(context, file)
-            val offset = index[level]
+            val index = getOffsetsFast(context, file) ?: return null
+            val offset = index.getOrNull(level) ?: -1L
 
             if (offset < 0L) return null
 
@@ -49,6 +56,36 @@ object PrebuiltLevelCatalog {
             }
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /**
+     * Быстрая проверка индекса: если он еще не готов, возвращаем null вместо долгого парсинга.
+     */
+    private fun getOffsetsFast(context: Context, file: File): LongArray? {
+        offsets?.let { return it }
+
+        val indexFile = File(context.filesDir, INDEX_FILE)
+        val cached = readIndex(indexFile, file.length())
+        if (cached != null) {
+            offsets = cached
+            return cached
+        }
+
+        // Если индекс не сгенерирован, отдаем пустой массив, чтобы не вешать главный поток.
+        // Полная индексация будет запущена в фоне.
+        return null
+    }
+
+    /**
+     * Метод для предварительной инициализации в фоновом потоке.
+     * Вызовите его из корутины при старте приложения, чтобы подготовить уровни.
+     */
+    suspend fun preloadAsync(context: Context) = withContext(Dispatchers.IO) {
+        try {
+            val file = getDataFile(context)
+            getOffsets(context, file)
+        } catch (_: Exception) {
         }
     }
 
