@@ -7,15 +7,17 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.os.Build
 import android.util.AttributeSet
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
-import android.view.animation.AccelerateInterpolator
+import android.view.animation.AccelerateDecelerateInterpolator
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Stack
@@ -121,8 +123,6 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
-    // ИСПРАВЛЕНО: движение Г-образных стрелок
-    // теперь совпадает с направлением их наконечника.
     private fun movementVector(
         direction: Direction
     ): Pair<Int, Int> {
@@ -558,6 +558,7 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         if (cellSize <= 0f) return
 
+        // Фон игрового поля.
         val board = RectF(
             offsetX,
             offsetY,
@@ -566,15 +567,14 @@ class ColorPuzzleView @JvmOverloads constructor(
         )
 
         paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(15, 22, 38)
         paint.setShadowLayer(
             cellSize * 0.20f,
             0f,
-            cellSize * 0.10f,
-            Color.argb(100, 0, 0, 0)
+            cellSize * 0.08f,
+            Color.argb(115, 0, 0, 0)
         )
-
-        paint.style = Paint.Style.FILL
-        paint.color = Color.rgb(22, 30, 46)
 
         canvas.drawRoundRect(
             board,
@@ -584,13 +584,26 @@ class ColorPuzzleView @JvmOverloads constructor(
         )
 
         paint.clearShadowLayer()
+
+        // Тонкая подсветка границы поля.
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1.4f
-        paint.color = Color.rgb(55, 71, 103)
+        paint.strokeWidth = (cellSize * 0.018f).coerceAtLeast(1f)
+        paint.color = Color.rgb(57, 86, 125)
+
+        canvas.drawRoundRect(
+            board,
+            cellSize * 0.16f,
+            cellSize * 0.16f,
+            paint
+        )
+
+        // Сетка.
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (cellSize * 0.012f).coerceAtLeast(1f)
+        paint.color = Color.argb(100, 91, 119, 158)
 
         for (col in 0..cols) {
             val x = offsetX + col * cellSize
-
             canvas.drawLine(
                 x,
                 offsetY,
@@ -602,7 +615,6 @@ class ColorPuzzleView @JvmOverloads constructor(
 
         for (row in 0..rows) {
             val y = offsetY + row * cellSize
-
             canvas.drawLine(
                 offsetX,
                 y,
@@ -612,8 +624,9 @@ class ColorPuzzleView @JvmOverloads constructor(
             )
         }
 
+        // Блоки с градиентом, мягкой тенью и светлым контуром.
         for (block in blocks) {
-            val inset = cellSize * 0.08f
+            val inset = cellSize * 0.075f
 
             val baseLeft = block.currentX + inset
             val baseTop = block.currentY + inset
@@ -633,38 +646,112 @@ class ColorPuzzleView @JvmOverloads constructor(
                 centerY + currentHeight / 2f
             )
 
-            val shadowAlpha = (60 * (block.alpha / 255f)).toInt()
-
-            blockPaint.setShadowLayer(
-                cellSize * 0.14f * block.scale,
-                0f,
-                cellSize * 0.07f * block.scale,
-                Color.argb(shadowAlpha, 0, 0, 0)
+            val radius = cellSize * 0.17f * block.scale
+            val alpha = block.alpha.coerceIn(0, 255)
+            val baseColor = applyAlpha(block.colorResId, alpha)
+            val lightColor = applyAlpha(
+                lightenColor(block.colorResId, 1.45f),
+                alpha
             )
 
+            // Мягкая тень под блоком.
+            blockPaint.shader = null
             blockPaint.style = Paint.Style.FILL
-            blockPaint.color = applyAlpha(
-                block.colorResId,
-                block.alpha
+            blockPaint.color = baseColor
+            blockPaint.setShadowLayer(
+                cellSize * 0.12f * block.scale,
+                0f,
+                cellSize * 0.055f * block.scale,
+                Color.argb(
+                    (85 * alpha / 255f).toInt(),
+                    0,
+                    0,
+                    0
+                )
             )
 
             canvas.drawRoundRect(
                 rect,
-                cellSize * 0.14f * block.scale,
-                cellSize * 0.14f * block.scale,
+                radius,
+                radius,
                 blockPaint
             )
 
             blockPaint.clearShadowLayer()
 
-            if (block.alpha > 30) {
+            // Основной градиент.
+            blockPaint.shader = LinearGradient(
+                rect.left,
+                rect.top,
+                rect.right,
+                rect.bottom,
+                lightColor,
+                baseColor,
+                Shader.TileMode.CLAMP
+            )
+            blockPaint.style = Paint.Style.FILL
+
+            canvas.drawRoundRect(
+                rect,
+                radius,
+                radius,
+                blockPaint
+            )
+
+            blockPaint.shader = null
+
+            // Полупрозрачный блик в верхней части блока.
+            val highlightRect = RectF(
+                rect.left + cellSize * 0.035f,
+                rect.top + cellSize * 0.035f,
+                rect.right - cellSize * 0.035f,
+                rect.top + rect.height() * 0.32f
+            )
+
+            blockPaint.style = Paint.Style.FILL
+            blockPaint.color = Color.argb(
+                (42 * alpha / 255f).toInt(),
+                255,
+                255,
+                255
+            )
+
+            canvas.drawRoundRect(
+                highlightRect,
+                radius * 0.7f,
+                radius * 0.7f,
+                blockPaint
+            )
+
+            // Светлый тонкий контур.
+            blockPaint.style = Paint.Style.STROKE
+            blockPaint.strokeWidth =
+                (cellSize * 0.022f).coerceAtLeast(1f)
+            blockPaint.color = Color.argb(
+                (155 * alpha / 255f).toInt(),
+                255,
+                255,
+                255
+            )
+
+            canvas.drawRoundRect(
+                rect,
+                radius,
+                radius,
+                blockPaint
+            )
+
+            blockPaint.style = Paint.Style.FILL
+            blockPaint.shader = null
+
+            if (alpha > 30) {
                 drawArrow(
                     canvas,
                     centerX,
                     centerY,
                     cellSize * 0.23f * block.scale,
                     block.directions,
-                    block.alpha
+                    alpha
                 )
             }
         }
@@ -672,6 +759,20 @@ class ColorPuzzleView @JvmOverloads constructor(
         paint.shader = null
         paint.clearShadowLayer()
         paint.style = Paint.Style.FILL
+        blockPaint.shader = null
+        blockPaint.clearShadowLayer()
+        blockPaint.style = Paint.Style.FILL
+    }
+
+    private fun lightenColor(
+        color: Int,
+        factor: Float
+    ): Int {
+        return Color.rgb(
+            (Color.red(color) * factor).toInt().coerceIn(0, 255),
+            (Color.green(color) * factor).toInt().coerceIn(0, 255),
+            (Color.blue(color) * factor).toInt().coerceIn(0, 255)
+        )
     }
 
     private fun applyAlpha(
@@ -912,20 +1013,22 @@ class ColorPuzzleView @JvmOverloads constructor(
         val targetY = startY + moveDy * distance
 
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 360
-            interpolator = AccelerateInterpolator()
+            // Чуть более плавная анимация удаления.
+            duration = 420L
+            interpolator = AccelerateDecelerateInterpolator()
 
             addUpdateListener { animation ->
                 val fraction = animation.animatedValue as Float
 
-                if (fraction < 0.2f) {
-                    block.scale = 1f - (fraction / 0.2f) * 0.12f
+                if (fraction < 0.16f) {
+                    val intro = fraction / 0.16f
+                    block.scale = 1f - intro * 0.08f
                 } else {
                     val progress = (
-                        (fraction - 0.2f) / 0.8f
+                        (fraction - 0.16f) / 0.84f
                     ).coerceIn(0f, 1f)
 
-                    block.scale = 0.88f + progress * 0.12f
+                    block.scale = 0.92f + progress * 0.08f
 
                     block.currentX =
                         startX + (targetX - startX) * progress
@@ -933,6 +1036,7 @@ class ColorPuzzleView @JvmOverloads constructor(
                     block.currentY =
                         startY + (targetY - startY) * progress
 
+                    // Постепенное исчезновение блока.
                     block.alpha = (
                         (1f - progress) * 255
                     ).toInt().coerceIn(0, 255)
