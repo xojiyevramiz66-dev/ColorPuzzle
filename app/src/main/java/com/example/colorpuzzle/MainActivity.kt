@@ -1,4 +1,3 @@
-
 package com.example.colorpuzzle
 
 import android.content.Context
@@ -26,7 +25,6 @@ class MainActivity :
 
     companion object {
         private const val PREFS_NAME = "color_puzzle_progress"
-        private const val DEFAULT_LIVES = 3
     }
 
     private val prefs by lazy {
@@ -34,7 +32,6 @@ class MainActivity :
     }
 
     private var level = 1
-    private var lives = DEFAULT_LIVES
     private var language = "ru"
     private var soundEnabled = true
     private var musicEnabled = false
@@ -44,8 +41,6 @@ class MainActivity :
     private lateinit var subtitleText: TextView
     private lateinit var levelCaption: TextView
     private lateinit var tvLevel: TextView
-    private lateinit var livesCaption: TextView
-    private lateinit var tvLives: TextView
     private lateinit var hintText: TextView
     private lateinit var puzzleView: ColorPuzzleView
     private lateinit var btnRestart: Button
@@ -96,9 +91,6 @@ class MainActivity :
         }
 
         updateUI()
-
-        // Сначала подготавливаем каталог уровней в фоновом потоке.
-        // Не выполняем сканирование levels.dat в главном потоке UI.
         prepareLevelCatalog()
     }
 
@@ -114,13 +106,15 @@ class MainActivity :
                 runOnUiThread {
                     catalogPreparing = false
 
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (isFinishing || isDestroyed) {
+                        return@runOnUiThread
+                    }
 
                     try {
                         setupGameLevel()
                         gameReady = true
                         updateUI()
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         gameReady = false
 
                         Toast.makeText(
@@ -133,11 +127,13 @@ class MainActivity :
                         ).show()
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 runOnUiThread {
                     catalogPreparing = false
 
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (isFinishing || isDestroyed) {
+                        return@runOnUiThread
+                    }
 
                     Toast.makeText(
                         this,
@@ -191,8 +187,6 @@ class MainActivity :
         vibrationEnabled = prefs.getBoolean("vibration_enabled", true)
 
         level = prefs.getInt("level", 1).coerceAtLeast(1)
-        lives = prefs.getInt("lives", DEFAULT_LIVES)
-            .coerceIn(1, DEFAULT_LIVES)
     }
 
     private fun bindViews() {
@@ -200,8 +194,6 @@ class MainActivity :
         subtitleText = findViewById(R.id.subtitleText)
         levelCaption = findViewById(R.id.levelCaption)
         tvLevel = findViewById(R.id.tvLevel)
-        livesCaption = findViewById(R.id.livesCaption)
-        tvLives = findViewById(R.id.tvLives)
         hintText = findViewById(R.id.hintText)
         puzzleView = findViewById(R.id.puzzleView)
         btnRestart = findViewById(R.id.btnRestart)
@@ -225,9 +217,6 @@ class MainActivity :
             "Уровень $level",
             "Level $level"
         )
-
-        livesCaption.text = tr("ЖИЗНИ", "LIVES")
-        tvLives.text = "❤️".repeat(lives.coerceAtLeast(0))
 
         hintText.text = tr(
             "УБИРАЙ СТРЕЛКИ, КОТОРЫМ НИЧТО НЕ МЕШАЕТ",
@@ -366,35 +355,19 @@ class MainActivity :
     override fun onWrongMove() {
         if (!gameReady) return
 
-        lives = (lives - 1).coerceAtLeast(0)
-
         playSound(success = false)
         vibrate(120)
 
-        if (lives <= 0) {
-            Toast.makeText(
-                this,
-                tr(
-                    "Жизни закончились. Уровень перезапущен.",
-                    "No lives left. Level restarted."
-                ),
-                Toast.LENGTH_SHORT
-            ).show()
+        Toast.makeText(
+            this,
+            tr(
+                "Путь заблокирован! Попробуй другую стрелку.",
+                "Path is blocked! Try another arrow."
+            ),
+            Toast.LENGTH_SHORT
+        ).show()
 
-            lives = DEFAULT_LIVES
-            puzzleView.loadLevel(level)
-        } else {
-            Toast.makeText(
-                this,
-                tr(
-                    "Путь заблокирован!",
-                    "Path is blocked!"
-                ),
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-
-        updateUI()
+        // Ошибка больше не отнимает жизни и не перезапускает уровень.
         saveProgress()
     }
 
@@ -411,7 +384,6 @@ class MainActivity :
 
         val completedLevel = level
         level++
-        lives = DEFAULT_LIVES
 
         try {
             puzzleView.loadLevel(level)
@@ -452,8 +424,6 @@ class MainActivity :
             return
         }
 
-        lives = DEFAULT_LIVES
-
         try {
             puzzleView.loadLevel(level)
             updateUI()
@@ -476,7 +446,6 @@ class MainActivity :
         try {
             prefs.edit()
                 .putInt("level", level)
-                .putInt("lives", lives)
                 .putString("board_state", puzzleView.exportState())
                 .putString("language", language)
                 .putBoolean("sound_enabled", soundEnabled)
@@ -564,4 +533,4 @@ class MainActivity :
 
         super.onDestroy()
     }
-}
+    }
