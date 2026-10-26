@@ -1,3 +1,4 @@
+
 package com.example.colorpuzzle
 
 import android.animation.Animator
@@ -120,14 +121,16 @@ class ColorPuzzleView @JvmOverloads constructor(
         }
     }
 
+    // ИСПРАВЛЕНО: движение Г-образных стрелок
+    // теперь совпадает с направлением их наконечника.
     private fun movementVector(
         direction: Direction
     ): Pair<Int, Int> {
         return when (direction) {
-            Direction.CURVE_RIGHT_DOWN -> 1 to 1
-            Direction.CURVE_DOWN_LEFT -> -1 to 1
-            Direction.CURVE_LEFT_UP -> -1 to -1
-            Direction.CURVE_UP_RIGHT -> 1 to -1
+            Direction.CURVE_RIGHT_DOWN -> 0 to 1
+            Direction.CURVE_DOWN_LEFT -> -1 to 0
+            Direction.CURVE_LEFT_UP -> 0 to -1
+            Direction.CURVE_UP_RIGHT -> 1 to 0
             else -> direction.dx to direction.dy
         }
     }
